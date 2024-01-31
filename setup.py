@@ -6,13 +6,13 @@ with open("README.md", 'r', encoding="utf-8") as f:
 
 setup(
     name='hplc_data_analysis',  # Replace with your own package name
-    version='1.0.2',  # Start with a small version number and increment it with each release
-    author='Matteo Pecchi',  # Replace with your name
+    version='1.0.3',  # Start with a small version number and increment it with each release
+    author='mpecchi',  # Replace with your name
     author_email='your.email@example.com',  # Replace with your email
     description='Tool for automatic analysis of multiple HPLC results',  # Provide a short description
     long_description=description,  # This will read your README file to use as the long description
     long_description_content_type='text/markdown',  # This is the format of your README file
-    url='https://github.com/missing',  # Replace with the URL of your project
+    url='https://github.com/mpecchi/hplc_data_analysis/tree/main',  # Replace with the URL of your project
     packages=find_packages(),  # This function will find all the packages in your project
     install_requires=['pathlib', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'ele', 'pubchempy',
                       'rdkit', 'openpyxl', 'pyarrow'
