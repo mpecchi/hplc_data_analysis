@@ -6,7 +6,7 @@ with open("README.md", 'r', encoding="utf-8") as f:
 
 setup(
     name='hplc_data_analysis',  # Replace with your own package name
-    version='1.0.4',  # Start with a small version number and increment it with each release
+    version='1.0.5',  # Start with a small version number and increment it with each release
     author='Matteo Pecchi',  # Replace with your name
     # author_email='your.email@example.com',  # Replace with your email
     description='Tool for automatic analysis of multiple HPLC results',  # Provide a short description
