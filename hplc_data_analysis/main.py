@@ -585,7 +585,8 @@ def _annotate_outliers_in_plot(ax, df_ave, df_std, y_lim):
     tform = blended_transform_factory(ax.transData, ax.transAxes)
     dfao = pd.DataFrame(columns=['H/L', 'xpos', 'ypos', 'ave', 'std', 'text'])
     dfao['ave'] = df_ave.transpose().to_numpy().flatten().tolist()
-    dfao['std'] = df_std.transpose().to_numpy().flatten().tolist()
+    if not df_std.empty:
+        dfao['std'] = df_std.transpose().to_numpy().flatten().tolist()
     try:
         dfao['xpos'] = [p.get_x() + p.get_width()/2 for p in ax.patches]
     except ValueError:  # otherwise the masking adds twice the columns
@@ -605,7 +606,6 @@ def _annotate_outliers_in_plot(ax, df_ave, df_std, y_lim):
             dfao.loc[ao, 'text'] = \
                 '{:.2f}'.format(round(dfao.loc[ao, 'ave'], 2)).strip()
             if (dfao.loc[ao, 'std'] != 0) & (~np.isnan(dfao.loc[ao, 'std'])):
-                print(np.isnan(dfao.loc[ao, 'std']))
                 dfao.loc[ao, 'text'] += r"$\pm$" + \
                     '{:.2f}'.format(round(dfao.loc[ao, 'std'], 2))
         elif dfao.loc[ao, 'ave'] < y_lim[0]:
@@ -1168,18 +1168,26 @@ class Project:
     plot_grid=False
     load_delimiter = '\t'
     load_skiprows = 18
-    columns_to_drop = ['I.Time', 'F.Time', 'A/H', 'Mark', 'ID#', "k'",'Plate #',
-        'Plate Ht.', 'Tailing', 'Resolution', 'Sep.Factor',
-        'Area Ratio', 'Height Ratio', 'Conc. %', 'Norm Conc.']
+    files_info_defauls_columns = \
+        ['dilution_factor', 'total_sample_conc_in_vial_mg_L',
+        'sample_yield_on_feedstock_basis_fr']
+    columns_to_keep_in_files = ['R.Time', 'Height', 'Area', 'Conc.']
+    columns_to_rename_in_files = {'R.Time': 'retention_time', 'Height': 'height',
+                                  'Area': 'area', 'Conc.': 'conc_vial_mg_L'}
+
+    # columns_to_drop = ['I.Time', 'F.Time', 'A/H', 'Mark', 'ID#', "k'",'Plate #',
+    #     'Plate Ht.', 'Tailing', 'Resolution', 'Sep.Factor',
+    #     'Area Ratio', 'Height Ratio', 'Conc. %', 'Norm Conc.']
     compounds_to_rename = {'3-methyl-(2H)-furan-5-one': '4-methyl-2H-furan-5-one',
         '4-methyl-(2H)-furan-5-one': '4-methyl-2H-furan-5-one',
         '2,3-pentanedione': 'pentane-2,3-dione',
         '(2R,3S,4R,5R)-2,3,4,5,6-pentahydroxyhexanoic acid': 'gluconic acid',
         '5-(hydroxymethyl)furan-2-carbaldehyde': '5-HMF'}
     param_to_axis_label = {'AdjArea': 'Peak Area [-]',
-        'conc_inj_mg_L':'vial conc. [mg/L] (ppm)',
-        'f_sample':'mass fraction [g/g$_{sample}$]',
-        'yield_m': 'mass fraction [g/g$_{feedstock}$]'}
+        'conc_vial_mg_L':'vial conc. [mg/L] (ppm)',
+        'conc_vial_if_undiluted_mg_L':'vial conc. [mg/L] (ppm)',
+        'fraction_of_sample_fr':'mass fraction [g/g$_{sample}$]',
+        'fraction_of_feedstock_fr': 'mass fraction [g/g$_{feedstock}$]'}
 
     @classmethod
     def set_folder_path(cls, path):
@@ -1211,9 +1219,14 @@ class Project:
         cls.load_delimiter = new_load_delimiter
 
     @classmethod
-    def set_columns_to_drop(cls, new_columns_to_drop):
+    def set_columns_to_keep_in_files(cls, new_columns_to_keep_in_files):
         """ Update list of columns to drop """
-        cls.columns_to_drop = new_columns_to_drop
+        cls.columns_to_keep_in_files = new_columns_to_keep_in_files
+
+    @classmethod
+    def set_columns_to_rename_in_files(cls, new_columns_to_rename_in_files):
+        """ Update list of columns to drop """
+        cls.columns_to_rename_in_files = new_columns_to_rename_in_files
 
     @classmethod
     def set_compounds_to_rename(cls, new_compounds_to_rename):
@@ -1229,38 +1242,46 @@ class Project:
     def __init__(self, rebuild_compounds_properties=False):
         """
         """
-        self.files_replicates_samples_created = False
-        self.list_of_created_param_reports = []
-        self.list_of_created_param_aggrreps = []
-        self.files = []
-        self.replicates = []
-        self.samples = []
-        self.samples_std = []
-        self.reports = {}
-        self.reports_std = {}
-        self.aggrreps = {}
-        self.aggrreps_std = {}
-        try:
-            self.files_info = pd.read_excel(plib.Path(Project.in_path, 'files_info.xlsx'),
-                engine='openpyxl', index_col='Filename')
-        except FileNotFoundError:
-            self.files_info = pd.DataFrame()
-            self.auto_create_files_info()
-        self.add_default_to_files_info()
-        # creating samples and replicates info files
-        self.files_info['sample_replicate'] = \
-            [a + '_' + str(b) for a, b in zip(self.files_info['sample'],
-                                              self.files_info['replicate'])]
-        self.replicates_info = \
-            self.files_info.reset_index().groupby('sample_replicate').agg(list)
-        self.replicates_info.reset_index(inplace=True)
-        self.replicates_info.set_index('sample_replicate', drop=True, inplace=True)
-        self.replicates_info['sample'] = [a[0] for a in self.replicates_info['sample']]
+        # initialized dictionaries
+        self.files_info = None
+        self.replicates_info = None
+        self.samples_info = None
 
-        self.samples_info = \
-            self.files_info.reset_index().groupby('sample').agg(list)
-        self.samples_info.reset_index(inplace=True)
-        self.samples_info.set_index('sample', drop=True, inplace=True)
+        self.files_info_created = False
+        self.replicates_info_created = False
+        self.samples_info_created = False
+
+        self.files = {}
+        self.replicates = {}
+        self.samples = {}
+        self.samples_std = {}
+        self.files_reports = {}
+        self.replicates_reports = {}
+        self.samples_reports = {}
+        self.samples_reports_std = {}
+        self.files_aggrreps = {}
+        self.replicates_aggrreps = {}
+        self.samples_aggrreps = {}
+        self.samples_aggrreps_std = {}
+
+        self.files_replicates_samples_created = False
+        self.list_of_files_param_reports = []
+        self.list_of_replicates_param_reports = []
+        self.list_of_samples_param_reports = []
+        self.list_of_files_param_aggrreps = []
+        self.list_of_replicates_param_aggrreps = []
+        self.list_of_samples_param_aggrreps = []
+
+        self.load_files_info()
+        # creating samples and replicates info files
+        self.create_replicates_info()
+
+        self.create_samples_info()
+        # self.replicates_info = \
+        #     self.files_info.reset_index().groupby('replicatename').agg(list)
+        # self.replicates_info.reset_index(inplace=True)
+        # self.replicates_info.set_index('replicatename', drop=True, inplace=True)
+        # self.replicates_info['samplename'] = [a[0] for a in self.replicates_info['samplename']]
 
         if not rebuild_compounds_properties:
             try:
@@ -1273,6 +1294,119 @@ class Project:
             self.compounds_properties = pd.DataFrame()
             self.create_compounds_properties()
 
+    def load_files_info(self):
+        """Attempts to load the 'files_info.xlsx' file containing metadata about GCMS
+        files. If the file is not found, it creates a new 'files_info' DataFrame with
+        default values based on the GCMS files present in the project's input path and
+        saves it to 'files_info.xlsx'. This method ensures 'files_info' is loaded with
+        necessary defaults and updates the class attribute 'files_info_created' to True."""
+        try:
+            self.files_info = pd.read_excel(plib.Path(Project.in_path, 'files_info.xlsx'),
+                engine='openpyxl', index_col='filename')
+            self._add_default_to_files_info()
+            print('Info: files_info loaded')
+        except FileNotFoundError:
+            print('Info: files_info not found')
+            self.files_info = pd.DataFrame()
+            self.create_files_info()
+            self._add_default_to_files_info()
+        self.files_info.to_excel(plib.Path(Project.in_path, 'files_info.xlsx'))
+        self.files_info_created = True
+        return self.files_info
+
+    def create_files_info(self):
+        """
+        """
+        filename = [a.parts[-1].split('.')[0]
+            for a in list(Project.in_path.glob('**/*.txt'))]
+        hplc_method = [f.split('_')[0]for f in filename]
+        samplename = [f.split('_')[1] for f in filename]
+        replicatenumber = [f.split('_')[2] for f in filename]
+        replicatename = [s + '_' + r for s, r in zip(samplename, replicatenumber)]
+        self.files_info = pd.DataFrame({'filename':filename,
+            'hplc_method':hplc_method, 'samplename':samplename,
+            'replicatename':replicatename})
+        self.files_info.set_index('filename', drop=True, inplace=True)
+
+    def _add_default_to_files_info(self):
+        """
+        """
+        for col in Project.files_info_defauls_columns:
+            if col not in list(self.files_info):
+                self.files_info[col] = 1
+
+    def create_replicates_info(self):
+        """Creates a summary 'replicates_info' DataFrame from 'files_info',
+        aggregating data for each replicate, and updates the 'replicates_info'
+        attribute with this summarized data."""
+        if not self.files_info_created:
+            self.load_files_info()
+        _replicates_info = self.files_info.reset_index(
+            ).groupby('replicatename').agg(list)
+        _replicates_info['samplename'] = [sn[0] for sn in
+                                         _replicates_info['samplename']]
+        _replicates_info.reset_index(inplace=True)
+        _replicates_info.set_index('replicatename', drop=True, inplace=True)
+        self.replicates_info = _replicates_info
+        self.replicates_info_created = True
+        print('Info: create_replicates_info: replicates_info created')
+        return self.replicates_info
+
+    def create_samples_info(self):
+        """Creates a summary 'samples_info' DataFrame from 'files_info',
+        aggregating data for each sample, and updates the 'samples_info'
+        attribute with this summarized data."""
+        if not self.replicates_info_created:
+            self.create_replicates_info()
+        _samples_info = self.files_info.reset_index(
+            ).groupby('samplename').agg(list)
+        _samples_info.reset_index(inplace=True)
+        _samples_info.set_index('samplename', drop=True, inplace=True)
+        self.samples_info = _samples_info
+        self.samples_info_created = True
+        print('Info: create_samples_info: samples_info created')
+        return self.samples_info
+
+    def update_all_info_statistics(self):
+        """
+        """
+        if not self.files_replicates_samples_created:
+            self.create_files_replicates_samples()
+        for file in self.files.values():
+            self._update_info_statistics(file, self.files_info)
+        self.save_files_info()
+        for replicate in self.replicates.values():
+            self._update_info_statistics(replicate, self.replicates_info)
+        self.save_replicates_info()
+        for sample in self.samples.values():
+            self._update_info_statistics(sample, self.samples_info)
+        self.save_samples_info()
+
+    def _update_info_statistics(self, df, info):
+        """
+        """
+        name = df.index.name
+        # max values
+        info.loc[name, 'max_height'] = df['height'].max()
+        info.loc[name, 'max_area'] = df['area'].max()
+        info.loc[name, 'max_conc_vial_mg_L'] = df['conc_vial_mg_L'].max()
+        info.loc[name, 'max_conc_vial_if_undiluted_mg_L'] = \
+            df['conc_vial_if_undiluted_mg_L'].max()
+        info.loc[name, 'max_fraction_of_sample_fr'] = \
+            df['fraction_of_sample_fr'].max()
+        info.loc[name, 'max_fraction_of_feedstock_fr'] = \
+            df['fraction_of_feedstock_fr'].max()
+        # total values
+        info.loc[name, 'total_conc_vial_mg_L'] = \
+            df['conc_vial_mg_L'].sum()
+        info.loc[name, 'total_conc_vial_if_undiluted_mg_L'] = \
+            df['conc_vial_if_undiluted_mg_L'].sum()
+        info.loc[name, 'total_fraction_of_sample_fr'] = \
+            df['fraction_of_sample_fr'].sum()
+        info.loc[name, 'total_fraction_of_feedstock_fr'] = \
+            df['fraction_of_feedstock_fr'].sum()
+        info.loc[name, 'compound_with_max_conc'] = \
+            df[df['conc_vial_mg_L'] == df['conc_vial_mg_L'].max()].index[0]
 
     def create_compounds_properties(self):
         """
@@ -1284,12 +1418,13 @@ class Project:
                 'classifications_codes_fractions.xlsx'))
         except FileNotFoundError:  # then try in the common input folder
             try:
-                self.class_code_frac = pd.read_excel(plib.Path(Project.shared_path,
+                self.class_code_frac = \
+                    pd.read_excel(plib.Path(Project.shared_path,
                     'classifications_codes_fractions.xlsx'))
             except FileNotFoundError:
                 print('ERROR: the file "classifications_codes_fractions.xlsx" was not found ',
                       'look in example/data for a template')
-        all_compounds = pd.concat([df for df in self.samples])
+        all_compounds = pd.concat([df for df in self.samples.values()])
         unique_compounds = pd.Index(all_compounds.index.unique())
         self.compounds_properties = pd.DataFrame(index=unique_compounds)
         self.compounds_properties.index.name = 'comp_name'
@@ -1306,31 +1441,11 @@ class Project:
         ordered_cols = list(self.compounds_properties)[:5] + \
             list(self.compounds_properties)[-1:] + \
             sorted(list(self.compounds_properties)[5:-1])
-        print(ordered_cols)
         self.compounds_properties = self.compounds_properties[ordered_cols]
         self.compounds_properties = self.compounds_properties.fillna(0)
         # save db in the project folder in the input
         self.compounds_properties.to_excel(plib.Path(Project.in_path,
-                                                     'compounds_properties.xlsx'))
-
-    def auto_create_files_info(self):
-        """
-        """
-        filename = [a.parts[-1].split('.')[0]
-            for a in list(Project.in_path.glob('**/*.txt'))]
-        wavelength = [f.split('_')[0]for f in filename]
-        sample = [f.split('_')[1] for f in filename]
-        replicate = [f.split('_')[2] for f in filename]
-        self.files_info = pd.DataFrame({'Filename':filename, 'wavelength':wavelength,
-                                'sample':sample, 'replicate':replicate})
-        self.files_info.set_index('Filename', drop=True, inplace=True)
-
-    def add_default_to_files_info(self):
-        """
-        """
-        for col in ['sample_conc_ppm', 'sample_yield_f', 'dilution_factor']:
-            if col not in list(self.files_info):
-                self.files_info[col] = 1
+            'compounds_properties.xlsx'))
 
     def load_single_file(self, filename):
 
@@ -1339,7 +1454,9 @@ class Project:
         file.rename({'Name': 'comp_name'}, inplace=True, axis='columns')
         file = file[file['comp_name'].notna()]
         file.set_index('comp_name', inplace=True)
-        file.drop(Project.columns_to_drop, axis=1, inplace=True)
+        columns_to_drop = [cl for cl in file.columns if cl not in Project.columns_to_keep_in_files]
+        file.drop(columns_to_drop, axis=1, inplace=True)
+        file.rename(Project.columns_to_rename_in_files, inplace=True, axis='columns')
         file.rename(Project.compounds_to_rename, inplace=True)
         if any(file.index.duplicated(keep='first')):
             duplicates = file[file.index.duplicated(keep=False)]
@@ -1347,27 +1464,50 @@ class Project:
             print('\nWARNING: duplicates entries in ', filename,
                   '\nduplicates are: ', duplicates,
                   '\nthe first instance has been kept.')
-        file = file.loc[file['Conc.'] > 0, :]
-        file['conc_inj_mg_L'] = file['Conc.'] * \
+        file = file.loc[file['conc_vial_mg_L'] > 0, :]
+        file['conc_vial_if_undiluted_mg_L'] = file['conc_vial_mg_L'] * \
             self.files_info.loc[filename, 'dilution_factor']
-        file['f_sample'] = file['conc_inj_mg_L'] / \
-            self.files_info.loc[filename, 'sample_conc_ppm']
-        file['yield_m'] = file['f_sample'] * \
-            self.files_info.loc[filename, 'sample_yield_f']
+        file['fraction_of_sample_fr'] = file['conc_vial_mg_L'] / \
+            self.files_info.loc[filename, 'total_sample_conc_in_vial_mg_L']
+        file['fraction_of_feedstock_fr'] = file['fraction_of_sample_fr'] * \
+            self.files_info.loc[filename, 'sample_yield_on_feedstock_basis_fr']
         file.index.name = filename
-        self.files.append(file)
+        self.files[filename] = file
         return file
 
-    def create_replicate_from_files(self, files_to_merge, replicate_name):
+    def create_files_replicates_samples(self):
+        """
+        """
+        for samplename in self.samples_info.index:
+            print('Sample: ', samplename)
+            _repls = []
+            for replicatename in \
+                self.replicates_info.index[self.replicates_info['samplename'] == samplename]:
+                print('\tReplicate: ', replicatename)
+                _files = []
+                for filename in self.files_info.index[self.files_info['replicatename']
+                                                      == replicatename]:
+                    print('\t\tFile: ', filename)
+                    file = self.load_single_file(filename)
+                    self.files[filename] = file
+                    _files.append(file)
+                replicate = self.create_replicate_from_files(_files, replicatename)
+                self.replicates[replicatename] = replicate
+                _repls.append(replicate)
+            sample, sample_std = self.create_sample_from_replicates(_repls, samplename)
+            self.samples[samplename] = sample
+            self.samples_std[samplename] = sample_std
+        self.files_replicates_samples_created = True
+
+    def create_replicate_from_files(self, files_to_merge, replicatename):
         """
         """
         replicate = pd.concat(files_to_merge, join='outer')
         replicate = replicate.groupby(replicate.index).max()
-        replicate.index.name = replicate_name
-        self.replicates.append(replicate)
+        replicate.index.name = replicatename
         return replicate
 
-    def create_sample_from_replicates(self, replicates, sample_name):
+    def create_sample_from_replicates(self, replicates, samplename):
         """
         """
         aligned_dfs = [df.align(replicates[0], join='outer', axis=0)[0]
@@ -1381,51 +1521,57 @@ class Project:
         # Calculating the average
         sample = pd.concat(filled_dfs).groupby(level=0).mean()
         sample_std = pd.concat(filled_dfs).groupby(level=0).std()
-        sample.index.name = sample_name
-        sample_std.index.name = sample_name
-        self.samples.append(sample)
-        self.samples_std.append(sample_std)
+        sample.index.name = samplename
+        sample_std.index.name = samplename
         return sample, sample_std
 
-    def single_df_statistics(self, df, project_df):
+    def create_files_param_report(self, param='conc_vial_mg_L'):
         """
         """
-        name = df.index.name
-        project_df.loc[name, 'MaxHeight'] = df['Height'].max()
-        project_df.loc[name, 'MaxArea'] = df['Area'].max()
-        project_df.loc[name, 'MaxConc'] = df['conc_inj_mg_L'].max()
-        project_df.loc[name, 'MaxFrac'] = df['f_sample'].max()
-        project_df.loc[name, 'MaxYield'] = df['yield_m'].max()
-        project_df.loc[name, 'TotConc'] = df['conc_inj_mg_L'].sum()
-        project_df.loc[name, 'TotFrac'] = df['f_sample'].sum()
-        project_df.loc[name, 'TotYield'] = df['yield_m'].sum()
-        project_df.loc[name, 'MaxConcComp'] = \
-            df[df['conc_inj_mg_L'] == df['conc_inj_mg_L'].max()].index[0]
+        if not self.files_replicates_samples_created:
+            self.create_files_replicates_samples()
+        rep = pd.DataFrame(index=self.compounds_properties.index,
+            columns=self.files_info.index, dtype='float')
+        rep.index.name = param
 
-    def create_files_replicates_samples(self):
+        for comp in rep.index.tolist():  # add conc values
+            for filename in list(rep):
+                try:
+                    rep.loc[comp, filename] = \
+                        self.files[filename].loc[comp, param]
+                except KeyError:
+                    rep.loc[comp, filename] = 0
+
+        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)] # drop columns with only 0s
+        self.files_reports[param] = rep
+        self.list_of_files_param_reports.append(param)
+        return self.files_reports[param]
+
+    def create_replicates_param_report(self, param='conc_vial_mg_L'):
         """
         """
-        self.files = []
-        self.replicates = []
-        self.samples = []
-        self.samples_std = []
+        if not self.files_replicates_samples_created:
+            self.create_files_replicates_samples()
+        rep = pd.DataFrame(index=self.compounds_properties.index,
+            columns=self.replicates_info.index, dtype='float')
+        rep.index.name = param
 
-        for sample in self.samples_info.index:
-            print('Sample: ', sample)
-            _repls = []
-            for replicate in self.replicates_info.index[self.replicates_info['sample'] == sample]:
-                print('\tReplicate: ', replicate)
-                _files = []
-                for filename in self.files_info.index[self.files_info['sample_replicate']
-                                                        == replicate]:
-                    print('\t\tFile: ', filename)
-                    file = self.load_single_file(filename)
-                    _files.append(file)
-                _repls.append(self.create_replicate_from_files(_files, replicate))
-            self.create_sample_from_replicates(_repls, sample)
-        self.files_replicates_samples_created = True
+        for comp in rep.index.tolist():  # add conc values
+            for replicatename in list(rep):
+                try:
+                    rep.loc[comp, replicatename] = \
+                        self.replicates[replicatename].loc[comp, param]
+                except KeyError:
+                    rep.loc[comp, replicatename] = 0
 
-    def create_param_report(self, param='conc_inj_mg_L'):
+        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)] # drop columns with only 0s
+        self.replicates_reports[param] = rep
+        self.list_of_replicates_param_reports.append(param)
+        return self.replicates_reports[param]
+
+    def create_samples_param_report(self, param='conc_vial_mg_L'):
         """
         """
         if not self.files_replicates_samples_created:
@@ -1437,39 +1583,81 @@ class Project:
         rep.index.name = param
         rep_std.index.name = param
 
-        for c, comp in enumerate(rep.index.tolist()):  # add conc values
-            for s, samp in enumerate(list(rep)):
+        for comp in rep.index.tolist():  # add conc values
+            for samplename in list(rep):
                 try:
-                    ave = self.samples[s].loc[comp, param]
+                    ave = self.samples[samplename].loc[comp, param]
                 except KeyError:
                     ave = 0
                 try:
-                    std =self.samples_std[s].loc[comp, param]
+                    std =self.samples_std[samplename].loc[comp, param]
                 except KeyError:
                     std = np.nan
-                rep.loc[comp, samp] = ave
-                rep_std.loc[comp, samp] = std
+                rep.loc[comp, samplename] = ave
+                rep_std.loc[comp, samplename] = std
 
         rep = rep.sort_index(key=rep.max(1).get, ascending=False)
         rep = rep.loc[:, rep.any(axis=0)] # drop columns with only 0s
         rep_std = rep_std.reindex(rep.index)
-        self.reports[param] = rep
-        self.reports_std[param] = rep_std
-        self.list_of_created_param_reports.append(param)
+        self.samples_reports[param] = rep
+        self.samples_reports_std[param] = rep_std
+        self.list_of_samples_param_reports.append(param)
         return rep, rep_std
 
-    def create_param_aggrrep(self, param='conc_inj_mg_L'):
+    def create_files_param_aggrrep(self, param):
+        print('create_files_param_aggrrep called: function does not exist',
+              'use create_replicates_param_aggrrep instead ')
+        return
+
+    def create_replicates_param_aggrrep(self, param='conc_vial_mg_L'):
         """
 
         """
-        if param not in self.list_of_created_param_reports:
-            self.create_param_report(param)
+        if param not in self.list_of_replicates_param_reports:
+            self.create_replicates_param_report(param)
         # fg = functional groups, mf = mass fraction
         fg_mf_labs = [c for c in list(self.compounds_properties)
                       if c.startswith('fg_mf_')]
         fg_labs = [c[6:] for c in fg_mf_labs]
-        samples_labs = list(self.reports[param])
-        comps_labs = self.reports[param].index
+        replicates_labs = list(self.replicates_reports[param])
+        comps_labs = self.replicates_reports[param].index
+        fg_mf_all = self.compounds_properties.loc[comps_labs, fg_mf_labs]
+        # create the aggregated dataframes and compute aggregated results
+        aggrrep = pd.DataFrame(columns=replicates_labs, index=fg_labs,
+            dtype='float')
+        aggrrep.index.name = param  # is the parameter
+        aggrrep.fillna(0, inplace=True)
+        for col in replicates_labs:
+            signal = self.replicates_reports[param].loc[:, col].values
+            for fg, fg_mf in zip(fg_labs, fg_mf_labs):
+                # each compound contributes to the cumulative sum of each
+                # functional group for the based on the mass fraction it has
+                # of that functional group (fg_mf act as weights)
+                # if fg_mf in subrep: multiply signal for weigth and sum
+                # to get aggregated
+                weights = fg_mf_all.loc[:, fg_mf].astype(signal.dtype)
+
+                aggrrep.loc[fg, col] = (signal*weights).sum()
+        aggrrep = aggrrep.loc[(aggrrep != 0).any(axis=1), :]  # drop rows with only 0
+        aggrrep = aggrrep.sort_index(key=aggrrep[replicates_labs].max(1).get,
+            ascending=False)
+
+        self.replicates_aggrreps[param] = aggrrep
+        self.list_of_replicates_param_aggrreps.append(param)
+        return aggrrep
+
+    def create_samples_param_aggrrep(self, param='conc_vial_mg_L'):
+        """
+
+        """
+        if param not in self.list_of_samples_param_reports:
+            self.create_samples_param_report(param)
+        # fg = functional groups, mf = mass fraction
+        fg_mf_labs = [c for c in list(self.compounds_properties)
+                      if c.startswith('fg_mf_')]
+        fg_labs = [c[6:] for c in fg_mf_labs]
+        samples_labs = list(self.samples_reports[param])
+        comps_labs = self.samples_reports[param].index
         fg_mf_all = self.compounds_properties.loc[comps_labs, fg_mf_labs]
         # create the aggregated dataframes and compute aggregated results
         aggrrep = pd.DataFrame(columns=samples_labs, index=fg_labs,
@@ -1481,8 +1669,8 @@ class Project:
         aggrrep_std.index.name = param  # is the parameter
         aggrrep_std.fillna(0, inplace=True)
         for col in samples_labs:
-            signal = self.reports[param].loc[:, col].values
-            signal_std = self.reports_std[param].loc[:, col].values
+            signal = self.samples_reports[param].loc[:, col].values
+            signal_std = self.samples_reports_std[param].loc[:, col].values
             for fg, fg_mf in zip(fg_labs, fg_mf_labs):
                 # each compound contributes to the cumulative sum of each
                 # functional group for the based on the mass fraction it has
@@ -1499,99 +1687,96 @@ class Project:
                             ascending=False)
         aggrrep_std = aggrrep_std.reindex(aggrrep.index)
 
-        self.aggrreps[param] = aggrrep
-        self.aggrreps_std[param] = aggrrep_std
-        self.list_of_created_param_aggrreps.append(param)
+        self.samples_aggrreps[param] = aggrrep
+        self.samples_aggrreps_std[param] = aggrrep_std
+        self.list_of_samples_param_aggrreps.append(param)
         return aggrrep, aggrrep_std
 
-    def create_all_statistics(self):
-        """
-        """
-        if not self.files_replicates_samples_created:
-            self.create_files_replicates_samples()
-        for file in self.files:
-            self.single_df_statistics(file, self.files_info)
-        for replicate in self.replicates:
-            self.single_df_statistics(replicate, self.replicates_info)
-        for sample in self.samples:
-            self.single_df_statistics(sample, self.samples_info)
-
-    def return_files_report(self):
-        ''''''
-        if not self.files_replicates_samples_created:
-            self.create_files_replicates_samples()
-        return self.files_info
-
-    def return_replicates_report(self):
+    def save_files_info(self):
         """"""
         if not self.files_replicates_samples_created:
             self.create_files_replicates_samples()
-        return self.replicates_info
-
-    def return_samples_report(self):
-        """"""
-        if not self.files_replicates_samples_created:
-            self.create_files_replicates_samples()
-        return self.samples_info
-
-    def return_param_report(self, param='conc_inj_mg_L'):
-        """"""
-        if param not in self.list_of_created_param_reports:
-            self.create_param_report(param)
-        return self.reports[param], self.reports_std[param]
-
-    def return_param_aggrrep(self, param='conc_inj_mg_L'):
-        """"""
-        if param not in self.list_of_created_param_aggrreps:
-            self.create_param_aggrrep(param)
-        return self.aggrreps[param], self.aggrreps_std[param]
-
-    def save_files_report(self):
-        """"""
-        if not self.files_replicates_samples_created:
-            self.create_files_replicates_samples()
-        out_path = plib.Path(Project.out_path, 'Files')
+        out_path = plib.Path(Project.out_path, 'files')
         out_path.mkdir(parents=True, exist_ok=True)
         self.files_info.to_excel(plib.Path(out_path, 'FilesReport.xlsx'))
 
-    def save_replicates_report(self):
+    def save_replicates_info(self):
         """"""
         if not self.files_replicates_samples_created:
             self.create_files_replicates_samples()
-        out_path = plib.Path(Project.out_path, 'Replicates')
+        out_path = plib.Path(Project.out_path, 'replicates')
         out_path.mkdir(parents=True, exist_ok=True)
         self.replicates_info.to_excel(plib.Path(out_path, 'ReplicatesReport.xlsx'))
 
-    def save_samples_report(self):
+    def save_samples_info(self):
         """"""
         if not self.files_replicates_samples_created:
             self.create_files_replicates_samples()
-        out_path = plib.Path(Project.out_path, 'Samples')
+        out_path = plib.Path(Project.out_path, 'samples')
         out_path.mkdir(parents=True, exist_ok=True)
         self.samples_info.to_excel(plib.Path(out_path, 'SamplesReport.xlsx'))
 
-    def save_param_report(self, param='conc_inj_mg_L'):
+    def save_files_param_report(self, param='conc_vial_mg_L'):
         """"""
-        if param not in self.list_of_created_param_reports:
-            self.create_param_report(param)
+        if param not in self.list_of_files_param_reports:
+            self.create_files_param_report(param)
+        name = 'rep_files' + param
+        out_path = plib.Path(Project.out_path, 'files_reports')
+        out_path.mkdir(parents=True, exist_ok=True)
+        self.files_reports[param].to_excel(plib.Path(out_path, name + '.xlsx'))
+
+    def save_files_param_aggrrep(self, param='conc_vial_mg_L'):
+        """"""
+        if param not in self.list_of_files_param_aggrreps:
+            self.create_files_param_aggrrep(param)
+        name = 'aggrrep_files' + param
+        out_path = plib.Path(Project.out_path, 'files_aggrreps')
+        out_path.mkdir(parents=True, exist_ok=True)
+        self.files_aggrreps[param].to_excel(plib.Path(out_path,
+                                            name + '.xlsx'))
+
+    def save_replicates_param_report(self, param='conc_vial_mg_L'):
+        """"""
+        if param not in self.list_of_replicates_param_reports:
+            self.create_replicates_param_report(param)
+        name = 'rep_replicates' + param
+        out_path = plib.Path(Project.out_path, 'replicates_reports')
+        out_path.mkdir(parents=True, exist_ok=True)
+        self.replicates_reports[param].to_excel(plib.Path(out_path,
+                                                name + '.xlsx'))
+
+    def save_replicates_param_aggrrep(self, param='conc_vial_mg_L'):
+        """"""
+        if param not in self.list_of_replicates_param_aggrreps:
+            self.create_replicates_param_aggrrep(param)
+        name = 'aggrrep_replicates' + param
+        out_path = plib.Path(Project.out_path, 'replicates_aggrreps')
+        out_path.mkdir(parents=True, exist_ok=True)
+        self.replicates_aggrreps[param].to_excel(plib.Path(out_path,
+                                                 name + '.xlsx'))
+
+    def save_samples_param_report(self, param='conc_vial_mg_L'):
+        """"""
+        if param not in self.list_of_samples_param_reports:
+            self.create_samples_param_report(param)
+        name = 'rep_samples' + param
+        out_path = plib.Path(Project.out_path, 'MultiReports')
+        out_path.mkdir(parents=True, exist_ok=True)
+        self.samples_reports[param].to_excel(plib.Path(out_path, name + '.xlsx'))
+        self.samples_reports_std[param].to_excel(plib.Path(out_path, name + '_std.xlsx'))
+
+    def save_samples_param_aggrrep(self, param='conc_vial_mg_L'):
+        """"""
+        if param not in self.list_of_samples_param_aggrreps:
+            self.create_samples_param_aggrrep(param)
         name = 'Rep_' + param
         out_path = plib.Path(Project.out_path, 'MultiReports')
         out_path.mkdir(parents=True, exist_ok=True)
-        self.reports[param].to_excel(plib.Path(out_path, name + '.xlsx'))
-        self.reports_std[param].to_excel(plib.Path(out_path, name + '_std.xlsx'))
+        self.samples_aggrreps[param].to_excel(plib.Path(out_path, name + '.xlsx'))
+        self.samples_aggrreps_std[param].to_excel(plib.Path(out_path, name + '_std.xlsx'))
 
-    def save_param_aggrrep(self, param='conc_inj_mg_L'):
-        """"""
-        if param not in self.list_of_created_param_aggrreps:
-            self.create_param_aggrrep(param)
-        name = 'Rep_' + param
-        out_path = plib.Path(Project.out_path, 'MultiReports')
-        out_path.mkdir(parents=True, exist_ok=True)
-        self.aggrreps[param].to_excel(plib.Path(out_path, name + '.xlsx'))
-        self.aggrreps_std[param].to_excel(plib.Path(out_path, name + '_std.xlsx'))
-
-    def plot_ave_std(self, filename='plot',
-        param='conc_inj_mg_L', aggr=False, min_y_thresh=None,
+    def plot_ave_std(self, figurename='plot', replicates_or_samples='samples',
+        param='conc_vial_mg_L', aggr=False, min_y_thresh=None,
         only_samples_to_plot=None, rename_samples=None, reorder_samples=None,
         item_to_color_to_hatch=None,
         paper_col=.8, fig_hgt_mlt=1.5, xlab_rot=0, annotate_outliers=True,
@@ -1604,36 +1789,118 @@ class Project:
         annotate_lttrs=False,
         note_plt=None):
         """
-        Generates a bar plot from average and standard deviation values.
-        legend_location can be None, outside, or all the best center left etc
+        Generates a bar plot displaying average values with optional standard deviation
+        bars for a specified parameter from either replicates or samples. This function allows
+        for detailed customization of the plot, including aggregation by functional groups,
+        filtering based on minimum thresholds, renaming and reordering samples, and applying
+        specific color schemes and hatching patterns to items.
+        Additionally, it supports adjusting plot aesthetics such as size, figure height multiplier,
+        x-label rotation, and outlier annotation. The plot can include a secondary y-axis
+        to display the sum of values, with customizable limits, labels, ticks, and sum label.
+        The legend can be placed inside or outside the plot area, with adjustable location,
+        columns, anchor points, and label spacing. An optional note can be added to the plot
+        for additional context.
+
+        Parameters:
+        - `figurename='plot'`: Name for the output plot replicate. Default is 'plot'.
+        - `replicates_or_samples='samples'`: Specifies whether to plot data from 'replicates'
+            or 'samples'. Default is 'samples'.
+        - `param='conc_vial_mg_L'`: The parameter to plot, such as 'conc_vial_mg_L'.
+            Default is 'conc_vial_mg_L'.
+        - `aggr=False`: Boolean indicating whether to aggregate data by functional groups.
+            Default is False, meaning no aggregation.
+        - `min_y_thresh=None`: Minimum y-value threshold for including data in the plot.
+            Default is None, including all data.
+        - `only_samples_to_plot=None`: List of samples to include in the plot.
+            Default is None, including all samples.
+        - `rename_samples=None`: Dictionary to rename samples in the plot.
+            Default is None, using original names.
+        - `reorder_samples=None`: List specifying the order of samples in the plot.
+            Default is None, using original order.
+        - `item_to_color_to_hatch=None`: DataFrame mapping items to specific colors and hatching patterns.
+            Default is None, using default colors and no hatching.
+        - `paper_col=.8`: Background color of the plot area.
+            Default is .8, a light grey.
+        - `fig_hgt_mlt=1.5`: Multiplier for the figure height to adjust plot size.
+            Default is 1.5.
+        - `xlab_rot=0`: Rotation angle for x-axis labels.
+            Default is 0, meaning no rotation.
+        - `annotate_outliers=True`: Boolean indicating whether to annotate outliers exceeding `y_lim`.
+            Default is True.
+        - `color_palette='deep'`: Color palette for the plot.
+            Default is 'deep'.
+        - `y_lab=None`: Label for the y-axis.
+            Default is None, using parameter name as label.
+        - `y_lim=None`: Limits for the y-axis.
+            Default is None, automatically determined.
+        - `y_ticks=None`: Custom tick marks for the y-axis.
+            Default is None, automatically determined.
+        - `yt_sum=False`: Boolean indicating whether to display a sum on a secondary y-axis.
+            Default is False.
+        - `yt_lim=None`: Limits for the secondary y-axis.
+            Default is None, automatically determined.
+        - `yt_lab=None`: Label for the secondary y-axis.
+            Default is None, using parameter name as label.
+        - `yt_ticks=None`: Custom tick marks for the secondary y-axis.
+            Default is None, automatically determined.
+        - `yt_sum_label='total\n(right axis)'`: Label for the sum on the secondary y-axis.
+            Default is 'total\n(right axis)'.
+        - `legend_location='best'`: Location of the legend within or outside the plot area.
+            Default is 'best', automatically determining the best location.
+        - `legend_columns=1`: Number of columns in the legend.
+            Default is 1.
+        - `legend_x_anchor=1`: X-anchor for the legend when placed outside the plot area.
+            Default is 1.
+        - `legend_y_anchor=1.02`: Y-anchor for the legend when placed outside the plot area.
+            Default is 1.02.
+        - `legend_labelspacing=0.5`: Spacing between labels in the legend.
+            Default is 0.5.
+        - `annotate_lttrs=False`: Boolean indicating whether to annotate letters for statistical significance.
+            Default is False.
+        - `note_plt=None`: Optional note to add to the plot for additional context.
+            Default is None.
 
         """
+        if replicates_or_samples == 'files':
+            print('use repicates instead of files')
         # create folder where Plots are stored
-        out_path = plib.Path(Project.out_path, 'Plots')
+        out_path = plib.Path(Project.out_path, 'plots')
         out_path.mkdir(parents=True, exist_ok=True)
         if not aggr:  # then use compounds reports
-            df_ave = self.reports[param].T
-            df_std = self.reports_std[param].T
+            if replicates_or_samples == 'replicates':
+                df_ave = self.replicates_reports[param].T
+                df_std = pd.DataFrame()
+            elif replicates_or_samples == 'samples':
+                df_ave = self.samples_reports[param].T
+                df_std = self.samples_reports_std[param].T
         else:  # use aggregated reports
-            df_ave = self.aggrreps[param].T
-            df_std = self.aggrreps_std[param].T
+            if replicates_or_samples == 'replicates':
+                df_ave = self.replicates_aggrreps[param].T
+                df_std = pd.DataFrame()
+            elif replicates_or_samples == 'samples':
+                df_ave = self.samples_aggrreps[param].T
+                df_std = self.samples_aggrreps_std[param].T
 
         if only_samples_to_plot is not None:
             df_ave = df_ave.loc[only_samples_to_plot, :].copy()
-            df_std = df_std.loc[only_samples_to_plot, :].copy()
+            if replicates_or_samples == 'samples':
+                df_std = df_std.loc[only_samples_to_plot, :].copy()
 
         if rename_samples is not None:
             df_ave.index = rename_samples
-            df_std.index = rename_samples
+            if replicates_or_samples == 'samples':
+                df_std.index = rename_samples
 
         if reorder_samples is not None:
             filtered_reorder_samples = [idx for idx in reorder_samples if idx in df_ave.index]
             df_ave = df_ave.reindex(filtered_reorder_samples)
-            df_std = df_std.reindex(filtered_reorder_samples)
+            if replicates_or_samples == 'samples':
+                df_std = df_std.reindex(filtered_reorder_samples)
 
         if min_y_thresh is not None:
             df_ave = df_ave.loc[:, (df_ave > min_y_thresh).any(axis=0)].copy()
-            df_std = df_std.loc[:, df_ave.columns].copy()
+            if replicates_or_samples == 'samples':
+                df_std = df_std.loc[:, df_ave.columns].copy()
 
         if item_to_color_to_hatch is not None:  # specific color and hatches to each fg
             colors = [item_to_color_to_hatch.loc[item, 'clr'] for item in df_ave.columns]
@@ -1645,7 +1912,6 @@ class Project:
                     '\\\\\\', '/////', '.....', '//', '...', '--', 'O', '\\\\',
                     'oo', '\\\\\\', '/////', '.....', '//', '...', '--', 'O',
                     '\\\\', 'oo', '\\\\\\', '/////', '.....')
-
         if yt_sum:
             plot_type = 1
         else:
@@ -1653,9 +1919,9 @@ class Project:
 
         fig, ax, axt, fig_par = figure_create(rows=1, cols=1, plot_type=plot_type,
             paper_col=paper_col, hgt_mltp=fig_hgt_mlt, font=Project.plot_font)
-        if df_std.isna().all().all():  # means that no std is provided
+        if df_std.isna().all().all() or df_std.empty:  # means that no std is provided
             df_ave.plot(ax=ax[0], kind='bar', rot=xlab_rot, width=.9,
-                        edgecolor='k', legend=False, yerr=df_std,
+                        edgecolor='k', legend=False,
                         capsize=3, color=colors)
             bars = ax[0].patches  # needed to add patches to the bars
             n_different_hatches = int(len(bars)/df_ave.shape[0])
@@ -1674,14 +1940,14 @@ class Project:
             axt[0].scatter(df_ave.index, df_ave.sum(axis=1).values,
                         color='k', linestyle='None', edgecolor='k',
                         facecolor='grey', s=100, label=yt_sum_label, alpha=.5)
-            if df_std is not None:
+            if not df_std.empty:
                 axt[0].errorbar(df_ave.index, df_ave.sum(axis=1).values,
                                 df_std.sum(axis=1).values, capsize=3,
                                 linestyle='None', color='grey', ecolor='k')
         bar_htchs = []
         # get a list with the htchs
         for h in htchs[:n_different_hatches] + htchs[:n_different_hatches]:
-            for n in range(df_ave.shape[0]):  # htcs repeated for samples
+            for _ in range(df_ave.shape[0]):  # htcs repeated for samples
                 bar_htchs.append(h)  # append based on samples number
         for bar, hatch in zip(bars, bar_htchs):  # assign htchs to each bar
             bar.set_hatch(hatch)
@@ -1696,7 +1962,7 @@ class Project:
                 rotation_mode='anchor')
         if legend_location is not None:
             hnd_ax, lab_ax = ax[0].get_legend_handles_labels()
-            if df_std is not None:
+            if not df_std.empty:
                 hnd_ax = hnd_ax[:len(hnd_ax)//2]
                 lab_ax = lab_ax[:len(lab_ax)//2]
             if legend_labelspacing > 0.5:  # large legend spacing for molecules
@@ -1718,43 +1984,70 @@ class Project:
                     loc=legend_location, ncol=legend_columns,
                     labelspacing=legend_labelspacing)
         # annotate ave+-std at the top of outliers bar (exceeding y_lim)
-        if annotate_outliers and (y_lim is not None) and (df_std is not None):
+        if annotate_outliers and (y_lim is not None):
             _annotate_outliers_in_plot(ax[0], df_ave, df_std, y_lim)
         if note_plt:
             ax[0].annotate(note_plt, ha='left', va='bottom',
                 xycoords='axes fraction', xy=(0.005, .945+fig_hgt_mlt/100))
-        figure_save(filename, out_path, fig, ax, axt, fig_par,
+        figure_save(figurename, out_path, fig, ax, axt, fig_par,
                 y_lab=y_lab, yt_lab=yt_lab, y_lim=y_lim, yt_lim=yt_lim, legend=False,
                 y_ticks=y_ticks, yt_ticks=yt_ticks, tight_layout=True,
                 annotate_lttrs=annotate_lttrs, grid=Project.plot_grid)
 
-# if __name__ == '__main__':
-#     folder_path = plib.Path(r"C:\Path\to\_example")
-#     # class methods need to be called at the beginning to influence all instances
-#     Project.set_folder_path(folder_path)
-#     Project.set_plot_grid(False)
-#     Project.set_plot_font('Sans')  # ('Times New Roman')
+if __name__ == '__main__':
+    folder_path = plib.Path(plib.Path(__file__).cwd().parent, 'example/data')
+    # class methods need to be called at the beginning to influence all instances
+    Project.set_folder_path(folder_path)
+    Project.set_plot_grid(False)
+    Project.set_plot_font('Sans')  # ('Times New Roman')
 
-#     p = Project(rebuild_compounds_properties=False)
-#     # %%
-#     p.create_compounds_properties()
-#     p.create_files_replicates_samples()
-#     a = p.files
-#     aa = p.replicates[0]
-#     aaa = p.replicates[1]
-#     b = p.samples[0]
-#     bb = p.samples_std[0]
+    p = Project(rebuild_compounds_properties=False)
+    # %%
+    # p.create_compounds_properties()
+    p.create_files_replicates_samples()
+    files_info = p.files_info
+    replicates_info = p.replicates_info
+    samples_info = p.samples_info
+    #%%
+    # example of file
+    FWCP250C1h1_1_210 = p.files['210_FWCP250C1h1_1']
+    # examples of replicates (merged files with diff. methods)
+    FWCP250C1h1_1 = p.replicates['FWCP250C1h1_1']
+    FWCP250C1h1_2 = p.replicates['FWCP250C1h1_2']
+    # examples of samples (average of replicates)
+    FWCP250C1h1 = p.samples['FWCP250C1h1']
+    FWCP250C1h1_std = p.samples_std['FWCP250C1h1']
 
-#     p.create_all_statistics()
-#     c, d = p.create_param_report()
-#     p.save_files_report()
-#     p.save_param_report()
-#     p.save_param_aggrrep()
-#     zz, zzstd = p.return_param_aggrrep(param='f_sample')
+    p.update_all_info_statistics()
+    files_report_conc = \
+        p.create_files_param_report(param='conc_vial_if_undiluted_mg_L')
+    replicates_report_conc = \
+        p.create_replicates_param_report(param='conc_vial_if_undiluted_mg_L')
+    replicates_report_fr = \
+        p.create_replicates_param_report(param='fraction_of_sample_fr')
+    replicates_aggrrep_fr = \
+        p.create_replicates_param_aggrrep(param='fraction_of_sample_fr')
+    samples_report_fr, samples_report_fr_std = \
+        p.create_samples_param_report(param='fraction_of_sample_fr')
+    samples_aggrrep_fr, samples_report_fr_std = \
+        p.create_samples_param_aggrrep(param='fraction_of_sample_fr')
+    p.save_files_info()
+    p.save_replicates_info()
+    p.save_samples_param_report()
+    p.save_samples_param_aggrrep()
+    # %%
+    p.plot_ave_std(param='conc_vial_mg_L', aggr=True, min_y_thresh=0,
+        y_lim=[0, 50000],legend_location='outside',
+        color_palette='Set2')
+    # %%
+    p.plot_ave_std(param='conc_vial_if_undiluted_mg_L', replicates_or_samples='replicates',
+        min_y_thresh=0, legend_location='outside', xlab_rot=20,
+        # only_samples_to_plot=['FW250C1h1', 'FWCP250C1h1'],
+        y_lim=[0, 50000], annotate_outliers=True)
+    # %%
+    p.plot_ave_std(replicates_or_samples='samples', param='fraction_of_sample_fr',
+        aggr=True, min_y_thresh=2000, legend_location='outside', xlab_rot=20,
+        # only_samples_to_plot=['FW250C1h1', 'FWCP250C1h1'],
+        y_lim=[0, 50000], annotate_outliers=True)
 
-#     p.plot_ave_std(param='f_sample', aggr=True, min_y_thresh=0,
-#         y_lim=[0, .5],
-#         color_palette='Set2')
-#     p.plot_ave_std(min_y_thresh=200, legend_location='outside',
-#                    only_samples_to_plot=['FW250C1h1', 'FWCP250C1h1'],
-#                    y_lim=[0, 5000])
+# %%
