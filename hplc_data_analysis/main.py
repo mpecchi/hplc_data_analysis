@@ -2004,10 +2004,12 @@ if __name__ == '__main__':
     p = Project(rebuild_compounds_properties=False)
     # %%
     # p.create_compounds_properties()
-    p.create_files_replicates_samples()
+    # get files, replicates, and samples info
     files_info = p.files_info
     replicates_info = p.replicates_info
     samples_info = p.samples_info
+    # create files, replicates and samples dfs
+    p.create_files_replicates_samples()
     #%%
     # example of file
     FWCP250C1h1_1_210 = p.files['210_FWCP250C1h1_1']
@@ -2017,8 +2019,10 @@ if __name__ == '__main__':
     # examples of samples (average of replicates)
     FWCP250C1h1 = p.samples['FWCP250C1h1']
     FWCP250C1h1_std = p.samples_std['FWCP250C1h1']
-
+    # add all statistics to info dfs
     p.update_all_info_statistics()
+    # create report and aggrreports for different parameters
+    # for files, replicates and samples
     files_report_conc = \
         p.create_files_param_report(param='conc_vial_if_undiluted_mg_L')
     replicates_report_conc = \
@@ -2049,5 +2053,3 @@ if __name__ == '__main__':
         aggr=True, min_y_thresh=2000, legend_location='outside', xlab_rot=20,
         # only_samples_to_plot=['FW250C1h1', 'FWCP250C1h1'],
         y_lim=[0, 50000], annotate_outliers=True)
-
-# %%
