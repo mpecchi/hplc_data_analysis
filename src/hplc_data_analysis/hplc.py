@@ -52,13 +52,9 @@ class Project:
         else:
             self.files_info_defauls_columns = files_info_defauls_columns
 
-        if columns_to_keep_in_files is None:
-            self.columns_to_keep_in_files = ["R.Time", "Height", "Area", "Conc."]
-        else:
-            self.columns_to_keep_in_files = columns_to_keep_in_files
-
         if columns_to_rename_in_files is None:
             self.columns_to_rename_in_files = {
+                "Name": "comp_name",
                 "R.Time": "retention_time",
                 "Height": "height",
                 "Area": "area",
@@ -66,6 +62,8 @@ class Project:
             }
         else:
             self.columns_to_rename_in_files = columns_to_rename_in_files
+
+        self.columns_to_keep_in_files = self.columns_to_rename_in_files.values()
 
         if compounds_to_rename is None:
             self.compounds_to_rename = {
@@ -94,6 +92,26 @@ class Project:
         self.files_info_created = False
         self.replicates_info_created = False
         self.samples_info_created = False
+        self.files = {}
+        self.replicates = {}
+        self.samples = {}
+        self.samples_std = {}
+        self.files_reports = {}
+        self.replicates_reports = {}
+        self.samples_reports = {}
+        self.samples_reports_std = {}
+        self.files_aggrreps = {}
+        self.replicates_aggrreps = {}
+        self.samples_aggrreps = {}
+        self.samples_aggrreps_std = {}
+
+        self.files_replicates_samples_created = False
+        self.list_of_files_param_reports = []
+        self.list_of_replicates_param_reports = []
+        self.list_of_samples_param_reports = []
+        self.list_of_files_param_aggrreps = []
+        self.list_of_replicates_param_aggrreps = []
+        self.list_of_samples_param_aggrreps = []
 
         self.samples: dict[str, Sample] = {}
         self.samplenames: list[str] = []
@@ -147,6 +165,22 @@ class Project:
             if col not in list(self.files_info):
                 self.files_info[col] = 1
 
+    def add_sample(self, samplename: str, sample: Sample):
+        """
+        Add a sample to the project.
+
+        :param samplename: The name of the sample to add.
+        :type samplename: str
+        :param sample: The sample object to add.
+        :type sample: Sample
+        """
+        if samplename not in self.samplenames:
+            self.samplenames.append(samplename)
+            self.samples[samplename] = sample
+
+        else:
+            print(f"{samplename = } already present in project. Sample not added.")
+
     def create_replicates_info(self):
         """Creates a summary 'replicates_info' DataFrame from 'files_info',
         aggregating data for each replicate, and updates the 'replicates_info'
@@ -176,19 +210,27 @@ class Project:
         print("Info: create_samples_info: samples_info created")
         return self.samples_info
 
-    def update_all_info_statistics(self):
-        """ """
-        if not self.files_replicates_samples_created:
-            self.create_files_replicates_samples()
-        for file in self.files.values():
-            self._update_info_statistics(file, self.files_info)
-        self.save_files_info()
-        for replicate in self.replicates.values():
-            self._update_info_statistics(replicate, self.replicates_info)
-        self.save_replicates_info()
-        for sample in self.samples.values():
-            self._update_info_statistics(sample, self.samples_info)
-        self.save_samples_info()
+    def load_samples(self):
+        if not self.samples_info_created:
+            self.create_samples_info()
+        for samplename in self.samples_info.index.tolist():
+            sample_info = files_info.loc[files_info["samplename"] == samplename, :]
+            self.samples[samplename] = Sample(self, samplename, sample_info)
+        self.samples_created = True
+
+    # def update_all_info_statistics(self):
+    #     """ """
+    #     if not self.files_replicates_samples_created:
+    #         self.create_files_replicates_samples()
+    #     for file in self.files.values():
+    #         self._update_info_statistics(file, self.files_info)
+    #     self.save_files_info()
+    #     for replicate in self.replicates.values():
+    #         self._update_info_statistics(replicate, self.replicates_info)
+    #     self.save_replicates_info()
+    #     for sample in self.samples.values():
+    #         self._update_info_statistics(sample, self.samples_info)
+    #     self.save_samples_info()
 
     def _update_info_statistics(self, df, info):
         """ """
@@ -218,7 +260,7 @@ class Project:
         classification codes and fractions."""
         try:  # first try to find the file in the folder
             self.class_code_frac = pd.read_excel(
-                plib.Path(Project.in_path, "classifications_codes_fractions.xlsx")
+                plib.Path(self.folder_path, "classifications_codes_fractions.xlsx")
             )
             print("Info: load_class_code_frac: classifications_codes_fractions loaded")
 
@@ -252,35 +294,50 @@ class Project:
         return self.compounds_properties
 
     def create_compounds_properties(self):
-        """Retrieves and organizes properties for underivatized compounds using pubchempy,
-        updating the 'compounds_properties' attribute and saving the properties
-        to 'compounds_properties.xlsx'."""
-        print("Info: create_compounds_properties: started")
+        """ """
+        if not self.files_replicates_samples_created:
+            self.create_files_replicates_samples()
+        self.class_code_frac = self.load_class_code_frac()
 
-        if not self.class_code_frac_loaded:
-            self.load_class_code_frac()
-        if not self.list_of_all_compounds_created:
-            self.create_list_of_all_compounds()
-        # cpdf = pd.DataFrame(index=pd.Index(self.list_of_all_compounds))
-        #
+        all_compounds = pd.concat([df for df in self.samples.values()])
+        unique_compounds = pd.Index(all_compounds.index.unique())
         cpdf = pd.DataFrame()
-        print("Info: create_compounds_properties: looping over names")
-        for name in self.list_of_all_compounds:
+        for name in unique_compounds:
             cpdf = name_to_properties(
                 comp_name=name,
                 dict_classes_to_codes=self.dict_classes_to_codes,
                 dict_classes_to_mass_fractions=self.dict_classes_to_mass_fractions,
                 df=cpdf,
             )
-        # cpdf = self._order_columns_in_compounds_properties(cpdf)
-        # cpdf = cpdf.fillna(0)
         cpdf.index.name = "comp_name"
         self.compounds_properties = cpdf
         self.compounds_properties_created = True
         # save db in the project folder in the input
-        cpdf.to_excel(plib.Path(Project.in_path, "compounds_properties.xlsx"))
+        cpdf.to_excel(plib.Path(self.folder_path, "compounds_properties.xlsx"))
         print("Info: create_compounds_properties: compounds_properties created and saved")
         return self.compounds_properties
+
+    def create_files_param_report(self, param="conc_vial_mg_L"):
+        """ """
+        if not self.files_replicates_samples_created:
+            self.load_samples()
+        rep = pd.DataFrame(
+            index=self.compounds_properties.index, columns=self.files_info.index, dtype="float"
+        )
+        rep.index.name = param
+
+        for comp in rep.index.tolist():  # add conc values
+            for filename in list(rep):
+                try:
+                    rep.loc[comp, filename] = self.files[filename].loc[comp, param]
+                except KeyError:
+                    rep.loc[comp, filename] = 0
+
+        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
+        self.files_reports[param] = rep
+        self.list_of_files_param_reports.append(param)
+        return self.files_reports[param]
 
 
 class Sample:
@@ -288,48 +345,125 @@ class Sample:
     def __init__(
         self,
         project: Project,
-        name: str,
-        filenames: list[str],
-        folder_path: plib.Path | None = None,
-        label: str | None = None,
-        column_name_mapping: dict[str:str] | None = None,
-        load_skiprows: int = 0,
-        time_moist: float = 38.0,
-        time_vm: float = 147,
-        heating_rate_deg_min: float | None = None,
-        temp_i_temp_b_threshold: float | None = None,
+        samplename: str,
+        sample_info: pd.DataFrame,
     ):
         # store the sample in the project
         self.project_name = project.name
-        project.add_sample(name, self)
+
         # prject defaults unless specified
 
-        self.out_path = project.out_path
-        self.plot_font = project.plot_font
-        self.plot_grid = project.plot_grid
+        self.load_skiprows = project.load_skiprows
+        self.load_delimiter = project.load_delimiter
+        self.files_info_defauls_columns = project.files_info_defauls_columns
+        self.columns_to_keep_in_files = project.columns_to_keep_in_files
+        self.columns_to_rename_in_files = project.columns_to_rename_in_files
+        self.compounds_to_rename = project.compounds_to_rename
         self.auto_save_reports = project.auto_save_reports
 
-        if folder_path is None:
-            self.folder_path = project.folder_path
-        else:
-            self.folder_path = folder_path
-        if load_skiprows is None:
-            self.load_skiprows = project.load_skiprows
-        else:
-            self.load_skiprows = load_skiprows
-        # sample default
-        self.name = name
-        self.filenames = filenames
-        self.n_repl = len(self.filenames)
-        if not label:
-            self.label = name
-        else:
-            self.label = label
+        self.folder_path = project.folder_path
+
+        self.samplename = samplename
+
+        self.sample_info = sample_info
+        self.files: dict[str, pd.DataFrame] = {}
+        self.replicates: dict[str, pd.DataFrame] = {}
+        self.replicate_files: dict[str, pd.DataFrame] = {}
+        for replicatename in self.sample_info["replicatename"].tolist():
+            replicate_info = self.sample_info.loc[
+                self.sample_info["replicatename"] == replicatename, :
+            ]
+            _files = []
+            for filename in replicate_info.index.tolist():
+                file = self.load_single_file(filename)
+                self.files[filename] = file
+                _files.append(file)
+            self.replicates[replicatename] = self.create_replicate_from_files(_files, replicatename)
+
+        self.create_ave_std_from_replicates(list(self.replicates.values()))
+
+    def load_single_file(self, filename: str) -> pd.DataFrame:
+
+        file: pd.DataFrame = pd.read_csv(
+            plib.Path(self.folder_path, filename + ".txt"),
+            delimiter=self.load_delimiter,
+            index_col=0,
+            skiprows=self.load_skiprows,
+        )
+        file.rename(self.columns_to_rename_in_files, inplace=True, axis="columns")
+        file = file.loc[file["comp_name"].notna(), self.columns_to_keep_in_files]
+        file.set_index("comp_name", inplace=True)
+        file.rename(self.compounds_to_rename, inplace=True)
+        if any(file.index.duplicated(keep="first")):
+            duplicates = file[file.index.duplicated(keep=False)]
+            file = file[~file.index.duplicated(keep="first")]
+            print(f"WARNING: duplicates in {filename = }")
+            print(f"{duplicates = }, first instance has been kept")
+        file = file.loc[file["conc_vial_mg_L"] > 0, :]
+        file["conc_vial_if_undiluted_mg_L"] = (
+            file["conc_vial_mg_L"] * self.sample_info.loc[filename, "dilution_factor"]
+        )
+        file["fraction_of_sample_fr"] = (
+            file["conc_vial_mg_L"]
+            / self.sample_info.loc[filename, "total_sample_conc_in_vial_mg_L"]
+        )
+        file["fraction_of_feedstock_fr"] = (
+            file["fraction_of_sample_fr"]
+            * self.sample_info.loc[filename, "sample_yield_on_feedstock_basis_fr"]
+        )
+        file.index.name = filename
+        return file
+
+    def create_replicate_from_files(self, files_to_merge, replicatename):
+        """ """
+        replicate = pd.concat(files_to_merge, join="outer")
+        replicate = replicate.groupby(replicate.index).max()
+        replicate.index.name = replicatename
+        return replicate
+
+    def create_ave_std_from_replicates(self, replicates) -> None:
+        # Align indices and columns of all DataFrames to the first replicate
+        aligned_dfs = [df.align(replicates[0], join="outer", axis=0)[0] for df in replicates]
+        aligned_dfs = [df.align(replicates[0], join="outer", axis=1)[0] for df in aligned_dfs]
+
+        # Fill missing values with 0 in each DataFrame
+        filled_dfs = [df.fillna(0) for df in aligned_dfs]
+
+        # Calculate the average and standard deviation
+        self.ave = pd.concat(filled_dfs).groupby(level=0).mean()
+        self.std = pd.concat(filled_dfs).groupby(level=0).std()
+
+        return
 
 
 # %%
 # if __file__ == "main":
 folder_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE")
 hplc = Project(folder_path)
-# hplc.create_files_info()
+files_info = hplc.load_files_info()
+# replicates_info = hplc.create_replicates_info()
+samples_info = hplc.create_samples_info()
+hplc.load_samples()
+# %%
+# hplc.create_compounds_properties()
+# %%
+
+
+# _samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
+# _samples_info.reset_index(inplace=True)
+# _samples_info.set_index("samplename", drop=True, inplace=True)
+# %%
+# df = samples_info.loc[
+#     a, :
+# ]  # Convert the DataFrame such that each element of the list becomes a row
+# # %%
+# df_exploded = df.apply(pd.Series.explode).reset_index()
+# # %%
+# # Group by the original index to get individual dataframes
+# grouped = df_exploded.groupby(df_exploded.index)
+
+# # Create a dictionary or list to hold the individual dataframes
+# dfs = {k: v.drop("index", axis=1) for k, v in grouped}
+# # %%
+
 # %%
