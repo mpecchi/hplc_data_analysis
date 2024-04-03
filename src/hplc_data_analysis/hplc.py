@@ -89,6 +89,10 @@ class Project:
         self.replicates_info: pd.DataFrame | None = None
         self.samples_info: pd.DataFrame | None = None
         self.unique_compounds_list: list[str] | None = None
+        self.class_code_frac: pd.DataFrame | None = None
+        self.dict_classes_to_codes: dict[str, str] | None = None
+        self.dict_classes_to_mass_fractions: dict[str, float] | None = None
+        self.compounds_properties: pd.DataFrame | None = None
         self.samples: dict[str, Sample] = {}
         self.samplenames: list[str] = []
         self.multireports: dict[str, pd.DataFrame] = {}
@@ -116,11 +120,7 @@ class Project:
         self.list_of_samples_param_aggrreps = []
 
     def load_files_info(self) -> pd.DataFrame:
-        """Attempts to load the 'files_info.xlsx' file containing metadata about GCMS
-        files. If the file is not found, it creates a new 'files_info' DataFrame with
-        default values based on the GCMS files present in the project's input path and
-        saves it to 'files_info.xlsx'. This method ensures 'files_info' is loaded with
-        necessary defaults and updates the class attribute 'files_info_created' to True."""
+        """ """
         files_info_path = plib.Path(self.folder_path, "files_info.xlsx")
         if files_info_path.exists():
             self.files_info = pd.read_excel(
@@ -150,29 +150,13 @@ class Project:
             }
         )
         self.files_info.set_index("filename", drop=True, inplace=True)
-        return 0
+        return self.files_info
 
     def _add_default_to_files_info(self):
         """ """
         for col in self.files_info_defauls_columns:
             if col not in list(self.files_info):
                 self.files_info[col] = 1
-
-    def add_sample(self, samplename: str, sample: Sample):
-        """
-        Add a sample to the project.
-
-        :param samplename: The name of the sample to add.
-        :type samplename: str
-        :param sample: The sample object to add.
-        :type sample: Sample
-        """
-        if samplename not in self.samplenames:
-            self.samplenames.append(samplename)
-            self.samples[samplename] = sample
-
-        else:
-            print(f"{samplename = } already present in project. Sample not added.")
 
     def create_replicates_info(self):
         """Creates a summary 'replicates_info' DataFrame from 'files_info',
@@ -205,53 +189,12 @@ class Project:
             sample_info = files_info.loc[files_info["samplename"] == samplename, :]
             self.samples[samplename] = Sample(self, samplename, sample_info)
 
-    # def update_all_info_statistics(self):
-    #     """ """
-    #     if not self.files_replicates_samples_created:
-    #         self.create_files_replicates_samples()
-    #     for file in self.files.values():
-    #         self._update_info_statistics(file, self.files_info)
-    #     self.save_files_info()
-    #     for replicate in self.replicates.values():
-    #         self._update_info_statistics(replicate, self.replicates_info)
-    #     self.save_replicates_info()
-    #     for sample in self.samples.values():
-    #         self._update_info_statistics(sample, self.samples_info)
-    #     self.save_samples_info()
-
-    def _update_info_statistics(self, df, info):
-        """ """
-        name = df.index.name
-        # max values
-        info.loc[name, "max_height"] = df["height"].max()
-        info.loc[name, "max_area"] = df["area"].max()
-        info.loc[name, "max_conc_vial_mg_L"] = df["conc_vial_mg_L"].max()
-        info.loc[name, "max_conc_vial_if_undiluted_mg_L"] = df["conc_vial_if_undiluted_mg_L"].max()
-        info.loc[name, "max_fraction_of_sample_fr"] = df["fraction_of_sample_fr"].max()
-        info.loc[name, "max_fraction_of_feedstock_fr"] = df["fraction_of_feedstock_fr"].max()
-        # total values
-        info.loc[name, "total_conc_vial_mg_L"] = df["conc_vial_mg_L"].sum()
-        info.loc[name, "total_conc_vial_if_undiluted_mg_L"] = df[
-            "conc_vial_if_undiluted_mg_L"
-        ].sum()
-        info.loc[name, "total_fraction_of_sample_fr"] = df["fraction_of_sample_fr"].sum()
-        info.loc[name, "total_fraction_of_feedstock_fr"] = df["fraction_of_feedstock_fr"].sum()
-        info.loc[name, "compound_with_max_conc"] = df[
-            df["conc_vial_mg_L"] == df["conc_vial_mg_L"].max()
-        ].index[0]
-
     def load_class_code_frac(self):
-        """Loads the 'classifications_codes_fractions.xlsx' file containing information
-        on SMARTS classifications. It first searches in the project's input path, then
-        in the shared path. It logs the status and returns the DataFrame containing
-        classification codes and fractions."""
-        try:  # first try to find the file in the folder
-            self.class_code_frac = pd.read_excel(
-                plib.Path(self.folder_path, "classifications_codes_fractions.xlsx")
-            )
-            print("Info: load_class_code_frac: classifications_codes_fractions loaded")
-
-        except FileNotFoundError:
+        """ """
+        class_code_frac_path = plib.Path(self.folder_path, "classifications_codes_fractions.xlsx")
+        if class_code_frac_path.exists():
+            self.class_code_frac = pd.read_excel(class_code_frac_path)
+        else:
             raise FileNotFoundError('the file "classifications_codes_fractions.xlsx" was not found')
         all_classes = self.class_code_frac.classes.tolist()
         codes = self.class_code_frac.codes.tolist()  # list of code for each class
@@ -266,45 +209,41 @@ class Project:
         DataFrame and updates the 'compounds_properties_created' attribute."""
         compounds_properties_path = plib.Path(self.folder_path, "compounds_properties.xlsx")
         if compounds_properties_path.exists():
-            cpdf = pd.read_excel(
-                compounds_properties_path,
-                index_col="comp_name",
+            self.compounds_properties = pd.read_excel(
+                compounds_properties_path, index_col="comp_name"
             )
-            # cpdf = _order_columns_in_compounds_properties(cpdf)
-            # cpdf = cpdf.fillna(0)
-            self.compounds_properties = cpdf
-            self.compounds_properties_created = True
             print("Info: compounds_properties loaded")
         else:
             print("Warning: compounds_properties.xlsx not found, creating it")
-            cpdf = self.create_compounds_properties()
+            self.compounds_properties = self.create_compounds_properties()
         return self.compounds_properties
 
-    def create_unique_compounds_list(self):
-
-        if self.samples.__len__() == 0:
+    def create_unique_compounds_list(self) -> list[str]:
+        if len(self.samples) == 0:
             self.create_samples()
+
+        all_compounds = pd.concat([df.ave for df in self.samples.values()])
+        self.unique_compounds_list = pd.Index(all_compounds.index.unique())
+        return self.unique_compounds_list
 
     def create_compounds_properties(self):
         """ """
-        self.create_unique_compounds_list()
-        self.class_code_frac = self.load_class_code_frac()
+        if self.unique_compounds_list is None:
+            self.create_unique_compounds_list()
+        if self.class_code_frac is None:
+            self.class_code_frac = self.load_class_code_frac()
 
-        all_compounds = pd.concat([df for df in self.samples.values()])
-        unique_compounds = pd.Index(all_compounds.index.unique())
-        cpdf = pd.DataFrame()
+        self.compounds_properties = pd.DataFrame()
         for name in self.unique_compounds_list:
-            cpdf = name_to_properties(
+            self.compounds_properties = name_to_properties(
                 comp_name=name,
                 dict_classes_to_codes=self.dict_classes_to_codes,
                 dict_classes_to_mass_fractions=self.dict_classes_to_mass_fractions,
-                df=cpdf,
+                df=self.compounds_properties,
             )
-        cpdf.index.name = "comp_name"
-        self.compounds_properties = cpdf
-        self.compounds_properties_created = True
+        self.compounds_properties.index.name = "comp_name"
         # save db in the project folder in the input
-        cpdf.to_excel(plib.Path(self.folder_path, "compounds_properties.xlsx"))
+        self.compounds_properties.to_excel(plib.Path(self.folder_path, "compounds_properties.xlsx"))
         print("Info: create_compounds_properties: compounds_properties created and saved")
         return self.compounds_properties
 
@@ -435,6 +374,7 @@ files_info = hplc.load_files_info()
 # replicates_info = hplc.create_replicates_info()
 samples_info = hplc.create_samples_info()
 hplc.create_samples()
+
 
 # %%
 # hplc.create_compounds_properties()
