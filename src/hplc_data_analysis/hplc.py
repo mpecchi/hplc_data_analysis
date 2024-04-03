@@ -115,7 +115,7 @@ class Project:
         self.list_of_replicates_param_aggrreps = []
         self.list_of_samples_param_aggrreps = []
 
-    def load_files_info(self):
+    def load_files_info(self) -> pd.DataFrame:
         """Attempts to load the 'files_info.xlsx' file containing metadata about GCMS
         files. If the file is not found, it creates a new 'files_info' DataFrame with
         default values based on the GCMS files present in the project's input path and
@@ -124,11 +124,8 @@ class Project:
         files_info_path = plib.Path(self.folder_path, "files_info.xlsx")
         if files_info_path.exists():
             self.files_info = pd.read_excel(
-                files_info_path,
-                engine="openpyxl",
-                index_col="filename",
+                files_info_path, engine="openpyxl", index_col="filename"
             )
-
             print("Info: files_info loaded")
         else:
             print("Info: files_info not found")
@@ -137,9 +134,9 @@ class Project:
         self.files_info.to_excel(plib.Path(self.folder_path, "files_info.xlsx"))
         return self.files_info
 
-    def create_files_info(self):
+    def create_files_info(self) -> pd.DataFrame:
         """ """
-        filename = [a.parts[-1].split(".")[0] for a in list(self.folder_path.glob("**/*.txt"))]
+        filename: int = [a.parts[-1].split(".")[0] for a in list(self.folder_path.glob("**/*.txt"))]
         hplc_method = [f.split("_")[0] for f in filename]
         samplename = [f.split("_")[1] for f in filename]
         replicatenumber = [f.split("_")[2] for f in filename]
@@ -153,6 +150,7 @@ class Project:
             }
         )
         self.files_info.set_index("filename", drop=True, inplace=True)
+        return 0
 
     def _add_default_to_files_info(self):
         """ """
@@ -181,12 +179,10 @@ class Project:
         aggregating data for each replicate, and updates the 'replicates_info'
         attribute with this summarized data."""
         if self.files_info is None:
-            self.load_files_info()
-        _replicates_info = self.files_info.reset_index().groupby("replicatename").agg(list)
-        _replicates_info["samplename"] = [sn[0] for sn in _replicates_info["samplename"]]
-        _replicates_info.reset_index(inplace=True)
-        _replicates_info.set_index("replicatename", drop=True, inplace=True)
-        self.replicates_info = _replicates_info
+            _ = self.load_files_info()
+        self.replicates_info = self.files_info.reset_index().groupby("replicatename").agg(list)
+        self.replicates_info.reset_index(inplace=True)
+        self.replicates_info.set_index("replicatename", drop=True, inplace=True)
         print("Info: create_replicates_info: replicates_info created")
         return self.replicates_info
 
@@ -195,15 +191,14 @@ class Project:
         aggregating data for each sample, and updates the 'samples_info'
         attribute with this summarized data."""
         if self.replicates_info is None:
-            self.create_replicates_info()
-        _samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
-        _samples_info.reset_index(inplace=True)
-        _samples_info.set_index("samplename", drop=True, inplace=True)
-        self.samples_info = _samples_info
+            _ = self.create_replicates_info()
+        self.samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
+        self.samples_info.reset_index(inplace=True)
+        self.samples_info.set_index("samplename", drop=True, inplace=True)
         print("Info: create_samples_info: samples_info created")
         return self.samples_info
 
-    def load_samples(self):
+    def create_samples(self):
         if self.samples_info is None:
             self.create_samples_info()
         for samplename in self.samples_info.index.tolist():
@@ -285,10 +280,14 @@ class Project:
             cpdf = self.create_compounds_properties()
         return self.compounds_properties
 
+    def create_unique_compounds_list(self):
+
+        if self.samples.__len__() == 0:
+            self.create_samples()
+
     def create_compounds_properties(self):
         """ """
-        if not self.sam:
-            self.create_unique_compounds_list()
+        self.create_unique_compounds_list()
         self.class_code_frac = self.load_class_code_frac()
 
         all_compounds = pd.concat([df for df in self.samples.values()])
@@ -312,7 +311,7 @@ class Project:
     def create_files_param_report(self, param="conc_vial_mg_L"):
         """ """
         if not self.files_replicates_samples_created:
-            self.load_samples()
+            self.create_samples()
         rep = pd.DataFrame(
             index=self.compounds_properties.index, columns=self.files_info.index, dtype="float"
         )
@@ -435,7 +434,7 @@ hplc = Project(folder_path)
 files_info = hplc.load_files_info()
 # replicates_info = hplc.create_replicates_info()
 samples_info = hplc.create_samples_info()
-hplc.load_samples()
+hplc.create_samples()
 
 # %%
 # hplc.create_compounds_properties()
