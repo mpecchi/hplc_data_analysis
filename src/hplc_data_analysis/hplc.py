@@ -12,7 +12,7 @@ from hplc_data_analysis.pubchem import (
     get_compound_from_pubchempy,
     report_difference,
 )
-from hplc_data_analysis.myfigure import MyFigure, clrs, lnstls, htchs, mrkrs
+from hplc_data_analysis.plotting import plot_ave_std
 
 
 class Project:
@@ -88,30 +88,23 @@ class Project:
         self.files_info: pd.DataFrame | None = None
         self.replicates_info: pd.DataFrame | None = None
         self.samples_info: pd.DataFrame | None = None
-        self.unique_compounds_list: list[str] | None = None
+        self.list_of_unique_compounds: list[str] | None = None
         self.class_code_frac: pd.DataFrame | None = None
         self.dict_classes_to_codes: dict[str, str] | None = None
         self.dict_classes_to_mass_fractions: dict[str, float] | None = None
         self.compounds_properties: pd.DataFrame | None = None
+
         self.samples: dict[str, Sample] = {}
+        self.file_dfs: dict[str, pd.DataFrame] = {}
+        self.replicate_dfs: dict[str, pd.DataFrame] = {}
+        self.sample_dfs: dict[str, pd.DataFrame] = {}
+        self.sample_dfs_std: dict[str, pd.DataFrame] = {}
         self.samplenames: list[str] = []
-        self.multireports: dict[str, pd.DataFrame] = {}
-        self.multireport_types_computed: list[str] = []
+        self.files_reports: dict[str, pd.DataFrame] = {}
+        self.replicates_reports: dict[str, pd.DataFrame] = {}
+        self.samples_reports: dict[str, pd.DataFrame] = {}
+        self.samples_reports_std: dict[str, pd.DataFrame] = {}
 
-        self.files = {}
-        self.replicates = {}
-        self.samples = {}
-        self.samples_std = {}
-        self.files_reports = {}
-        self.replicates_reports = {}
-        self.samples_reports = {}
-        self.samples_reports_std = {}
-        self.files_aggrreps = {}
-        self.replicates_aggrreps = {}
-        self.samples_aggrreps = {}
-        self.samples_aggrreps_std = {}
-
-        self.files_replicates_samples_created = False
         self.list_of_files_param_reports = []
         self.list_of_replicates_param_reports = []
         self.list_of_samples_param_reports = []
@@ -218,23 +211,23 @@ class Project:
             self.compounds_properties = self.create_compounds_properties()
         return self.compounds_properties
 
-    def create_unique_compounds_list(self) -> list[str]:
-        if len(self.samples) == 0:
+    def create_list_of_unique_compounds(self) -> list[str]:
+        if len(self.sample_dfs) == 0:
             self.create_samples()
 
-        all_compounds = pd.concat([df.ave for df in self.samples.values()])
-        self.unique_compounds_list = pd.Index(all_compounds.index.unique())
-        return self.unique_compounds_list
+        all_compounds = pd.concat([df for df in self.sample_dfs.values()])
+        self.list_of_unique_compounds = pd.Index(all_compounds.index.unique())
+        return self.list_of_unique_compounds
 
     def create_compounds_properties(self):
         """ """
-        if self.unique_compounds_list is None:
-            self.create_unique_compounds_list()
+        if self.list_of_unique_compounds is None:
+            self.create_list_of_unique_compounds()
         if self.class_code_frac is None:
             self.class_code_frac = self.load_class_code_frac()
 
         self.compounds_properties = pd.DataFrame()
-        for name in self.unique_compounds_list:
+        for name in self.list_of_unique_compounds:
             self.compounds_properties = name_to_properties(
                 comp_name=name,
                 dict_classes_to_codes=self.dict_classes_to_codes,
@@ -249,8 +242,10 @@ class Project:
 
     def create_files_param_report(self, param="conc_vial_mg_L"):
         """ """
-        if not self.files_replicates_samples_created:
+        if len(self.sample_dfs) == 0:
             self.create_samples()
+        if self.compounds_properties is None:
+            _ = self.load_compounds_properties()
         rep = pd.DataFrame(
             index=self.compounds_properties.index, columns=self.files_info.index, dtype="float"
         )
@@ -259,7 +254,7 @@ class Project:
         for comp in rep.index.tolist():  # add conc values
             for filename in list(rep):
                 try:
-                    rep.loc[comp, filename] = self.files[filename].loc[comp, param]
+                    rep.loc[comp, filename] = self.file_dfs[filename].loc[comp, param]
                 except KeyError:
                     rep.loc[comp, filename] = 0
 
@@ -268,6 +263,68 @@ class Project:
         self.files_reports[param] = rep
         self.list_of_files_param_reports.append(param)
         return self.files_reports[param]
+
+    def create_replicates_param_report(self, param="conc_vial_mg_L"):
+        """ """
+        if len(self.sample_dfs) == 0:
+            self.create_samples()
+        if self.compounds_properties is None:
+            _ = self.load_compounds_properties()
+        rep = pd.DataFrame(
+            index=self.compounds_properties.index, columns=self.replicates_info.index, dtype="float"
+        )
+        rep.index.name = param
+
+        for comp in rep.index.tolist():  # add conc values
+            for replicatename in list(rep):
+                try:
+                    rep.loc[comp, replicatename] = self.replicate_dfs[replicatename].loc[
+                        comp, param
+                    ]
+                except KeyError:
+                    rep.loc[comp, replicatename] = 0
+
+        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
+        self.replicates_reports[param] = rep
+        self.list_of_replicates_param_reports.append(param)
+        return self.replicates_reports[param]
+
+    def create_samples_param_report(self, param="conc_vial_mg_L"):
+        """ """
+        if len(self.sample_dfs) == 0:
+            self.create_samples()
+        if self.compounds_properties is None:
+            _ = self.load_compounds_properties()
+        rep = pd.DataFrame(
+            index=self.compounds_properties.index, columns=self.samples_info.index, dtype="float"
+        )
+        rep_std = pd.DataFrame(
+            index=self.compounds_properties.index, columns=self.samples_info.index, dtype="float"
+        )
+        rep.index.name = param
+        rep_std.index.name = param
+
+        for comp in rep.index.tolist():  # add conc values
+            for samplename in list(rep):
+                try:
+                    ave = self.sample_dfs[samplename].loc[comp, param]
+                except KeyError:
+                    ave = 0
+                try:
+                    std = self.sample_dfs_std[samplename].loc[comp, param]
+                except KeyError:
+                    std = np.nan
+                rep.loc[comp, samplename] = ave
+                rep_std.loc[comp, samplename] = std
+
+        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
+        rep_std = rep_std.reindex(rep.index)
+        self.samples_reports[param] = rep
+        self.samples_reports_std[param] = rep_std
+        self.list_of_samples_param_reports.append(param)
+        return rep, rep_std
 
 
 class Sample:
@@ -307,10 +364,14 @@ class Sample:
             for filename in replicate_info.index.tolist():
                 file = self.load_single_file(filename)
                 self.files[filename] = file
+                project.file_dfs[filename] = self.files[filename]
                 _files.append(file)
             self.replicates[replicatename] = self.create_replicate_from_files(_files, replicatename)
+            project.replicate_dfs[replicatename] = self.replicates[replicatename]
 
-        self.create_ave_std_from_replicates(list(self.replicates.values()))
+        ave, std = self.create_ave_std_from_replicates(list(self.replicates.values()))
+        project.sample_dfs[self.samplename] = ave
+        project.sample_dfs_std[self.samplename] = std
 
     def load_single_file(self, filename: str) -> pd.DataFrame:
 
@@ -351,7 +412,7 @@ class Sample:
         replicate.index.name = replicatename
         return replicate
 
-    def create_ave_std_from_replicates(self, replicates) -> None:
+    def create_ave_std_from_replicates(self, replicates) -> tuple[pd.DataFrame]:
         # Align indices and columns of all DataFrames to the first replicate
         aligned_dfs = [df.align(replicates[0], join="outer", axis=0)[0] for df in replicates]
         aligned_dfs = [df.align(replicates[0], join="outer", axis=1)[0] for df in aligned_dfs]
@@ -363,7 +424,7 @@ class Sample:
         self.ave = pd.concat(filled_dfs).groupby(level=0).mean()
         self.std = pd.concat(filled_dfs).groupby(level=0).std()
 
-        return
+        return self.ave, self.std
 
 
 # %%
@@ -374,12 +435,21 @@ files_info = hplc.load_files_info()
 # replicates_info = hplc.create_replicates_info()
 samples_info = hplc.create_samples_info()
 hplc.create_samples()
-
-
 # %%
+fpr = hplc.create_files_param_report()
+rpr = hplc.create_replicates_param_report()
+spr, sprd = hplc.create_samples_param_report()
+# %%
+fpr.to_clipboard()
 # hplc.create_compounds_properties()
 # %%
-
+mf = plot_ave_std(
+    hplc,
+    width=7,
+    min_y_thresh=50,
+    legend_location="outside",
+    y_lim=[0, 10000],
+)
 
 # _samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
 # _samples_info.reset_index(inplace=True)

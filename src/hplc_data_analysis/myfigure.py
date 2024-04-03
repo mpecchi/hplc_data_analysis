@@ -547,7 +547,7 @@ class MyFigure:
             patterns = htchs[:bars_in_group]  # set hatch patterns in correct order
             hatches = []  # list for hatches in the order of the bars
             for h in patterns:  # loop over patterns to create bar-ordered hatches
-                for i in range(int(len(bars) / len(patterns))):
+                for _ in range(int(len(bars) / len(patterns))):
                     hatches.append(h)
             # loop over bars and hatches to set hatches in correct order
             for bar, hatch in zip(bars, hatches):
