@@ -12,7 +12,8 @@ from hplc_data_analysis.pubchem import (
     get_compound_from_pubchempy,
     report_difference,
 )
-from hplc_data_analysis.plotting import plot_ave_std
+from hplc_data_analysis.myfigure import MyFigure
+from hplc_data_analysis.plotting import plot_ave_std, plot_df_ave_std
 
 
 class Project:
@@ -84,7 +85,7 @@ class Project:
             }
         else:
             self.param_to_axis_label = param_to_axis_label
-
+        self.acceptable_params: list[str] = list(self.param_to_axis_label.keys())
         self.files_info: pd.DataFrame | None = None
         self.replicates_info: pd.DataFrame | None = None
         self.samples_info: pd.DataFrame | None = None
@@ -104,6 +105,10 @@ class Project:
         self.replicates_reports: dict[str, pd.DataFrame] = {}
         self.samples_reports: dict[str, pd.DataFrame] = {}
         self.samples_reports_std: dict[str, pd.DataFrame] = {}
+        self.files_aggrreps: dict[str, pd.DataFrame] = {}
+        self.replicates_aggrreps: dict[str, pd.DataFrame] = {}
+        self.samples_aggrreps: dict[str, pd.DataFrame] = {}
+        self.samples_aggrreps_std: dict[str, pd.DataFrame] = {}
 
         self.list_of_files_param_reports = []
         self.list_of_replicates_param_reports = []
@@ -158,6 +163,7 @@ class Project:
         if self.files_info is None:
             _ = self.load_files_info()
         self.replicates_info = self.files_info.reset_index().groupby("replicatename").agg(list)
+
         self.replicates_info.reset_index(inplace=True)
         self.replicates_info.set_index("replicatename", drop=True, inplace=True)
         print("Info: create_replicates_info: replicates_info created")
@@ -170,6 +176,7 @@ class Project:
         if self.replicates_info is None:
             _ = self.create_replicates_info()
         self.samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
+        self.replicates_info['samplename'] = [a[0] for a in self.replicates_info['samplename']]
         self.samples_info.reset_index(inplace=True)
         self.samples_info.set_index("samplename", drop=True, inplace=True)
         print("Info: create_samples_info: samples_info created")
@@ -181,6 +188,97 @@ class Project:
         for samplename in self.samples_info.index.tolist():
             sample_info = files_info.loc[files_info["samplename"] == samplename, :]
             self.samples[samplename] = Sample(self, samplename, sample_info)
+
+    def create_files_param_report(self, param="conc_vial_mg_L"):
+        """
+        Create a report that consolidates the values of a specified parameter from different DataFrames,
+        using the union of all indices found in the individual DataFrames.
+
+        :param param: The parameter to extract from each DataFrame. Defaults to "conc_vial_mg_L".
+        :return: A DataFrame containing the consolidated report.
+        """
+        if not self.sample_dfs:
+            self.create_samples()
+        # Create a dictionary of Series, each Series named after the file and containing the 'param' values
+        series_dict = {
+            filename: self.file_dfs[filename][param].rename(filename)
+            for filename in self.files_info.index
+            if param in self.file_dfs[filename].columns
+        }
+        # Get the union of all indices from the individual DataFrames
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
+        # Reindex the DataFrame to include all unique indices, filling missing values with 0
+        rep = rep.sort_index(key=rep.max(axis=1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]
+        # Save and return the report
+        self.files_reports[param] = rep.fillna(0)
+        self.list_of_files_param_reports.append(param)
+        return self.files_reports[param]
+
+    def create_replicates_param_report(self, param="conc_vial_mg_L"):
+        """
+        Create a report that consolidates the values of a specified parameter from different DataFrames,
+        using the union of all indices found in the individual DataFrames.
+
+        :param param: The parameter to extract from each DataFrame. Defaults to "conc_vial_mg_L".
+        :return: A DataFrame containing the consolidated report.
+        """
+        if not self.sample_dfs:
+            self.create_samples()
+        # Create a dictionary of Series, each Series named after the replicate and containing the 'param' values
+        series_dict = {
+            replicatename: self.replicate_dfs[replicatename][param].rename(replicatename)
+            for replicatename in self.replicates_info.index
+            if param in self.replicate_dfs[replicatename].columns
+        }
+        # Get the union of all indices from the individual DataFrames
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
+        # Sort by the max value in each row, then filter out columns that only contain 0s
+        rep = rep.sort_index(key=rep.max(axis=1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]
+        # Save and return the report
+        self.replicates_reports[param] = rep.fillna(0)
+        self.list_of_replicates_param_reports.append(param)
+        return self.replicates_reports[param]
+
+    def create_samples_param_report(self, param="conc_vial_mg_L"):
+        """
+        Create two reports that consolidate the average and standard deviation of a specified parameter
+        from different sample DataFrames, assuming both sets of DataFrames share the same indices.
+
+        :param param: The parameter to extract from each DataFrame. Defaults to "conc_vial_mg_L".
+        :return: A tuple of two DataFrames containing the consolidated averages and standard deviations.
+        """
+        if not self.sample_dfs:
+            self.create_samples()
+
+        series_dict = {
+            samplename: self.sample_dfs[samplename][param].rename(samplename)
+            for samplename in self.samples_info.index
+            if param in self.sample_dfs[samplename].columns
+        }
+        series_dict_std = {
+            samplename: self.sample_dfs_std[samplename][param].rename(samplename)
+            for samplename in self.samples_info.index
+            if param in self.sample_dfs_std[samplename].columns
+        }
+        # Get the union of all indices from the individual sample DataFrames (assuming indices are the same for std and avg)
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
+        rep_std = pd.concat(series_dict_std.values(), axis=1, keys=series_dict_std.keys(), join='outer')
+        # Populate the DataFrames with values
+
+        # Sort by the max value in each row and filter out columns that only contain 0s in the average report
+        rep = rep.sort_index(key=rep.max(axis=1).get, ascending=False)
+        rep = rep.loc[:, rep.any(axis=0)]
+        # Ensure the standard deviation DataFrame aligns with the average DataFrame
+        rep_std = rep_std.reindex_like(rep)
+
+        # Save and return the reports
+        self.samples_reports[param] = rep.fillna(0)
+        self.samples_reports_std[param] = rep_std
+        self.list_of_samples_param_reports.append(param)
+
+        return self.samples_reports[param], self.samples_reports_std[param]
 
     def load_class_code_frac(self):
         """ """
@@ -209,15 +307,8 @@ class Project:
         else:
             print("Warning: compounds_properties.xlsx not found, creating it")
             self.compounds_properties = self.create_compounds_properties()
+
         return self.compounds_properties
-
-    def create_list_of_unique_compounds(self) -> list[str]:
-        if len(self.sample_dfs) == 0:
-            self.create_samples()
-
-        all_compounds = pd.concat([df for df in self.sample_dfs.values()])
-        self.list_of_unique_compounds = pd.Index(all_compounds.index.unique())
-        return self.list_of_unique_compounds
 
     def create_compounds_properties(self):
         """ """
@@ -240,91 +331,126 @@ class Project:
         print("Info: create_compounds_properties: compounds_properties created and saved")
         return self.compounds_properties
 
-    def create_files_param_report(self, param="conc_vial_mg_L"):
-        """ """
+    def create_list_of_unique_compounds(self) -> list[str]:
         if len(self.sample_dfs) == 0:
             self.create_samples()
+
+        all_compounds = pd.concat([df for df in self.sample_dfs.values()])
+        self.list_of_unique_compounds = pd.Index(all_compounds.index.unique())
+        return self.list_of_unique_compounds
+
+    def create_files_param_aggrrep(self, param="conc_vial_mg_L"):
+        """Aggregates compound concentration data by functional group for each
+        parameter across all FILES, providing a summarized view of functional
+        group concentrations. This aggregation facilitates the understanding
+        of functional group distribution across FILES."""
+        print("Info: create_param_aggrrep: ", param)
+        if param not in self.acceptable_params:
+            raise ValueError(f"{param = } is not an acceptable param")
+        if param not in self.list_of_files_param_reports:
+            self.create_files_param_report(param)
         if self.compounds_properties is None:
-            _ = self.load_compounds_properties()
-        rep = pd.DataFrame(
-            index=self.compounds_properties.index, columns=self.files_info.index, dtype="float"
-        )
-        rep.index.name = param
+            self.load_compounds_properties()
+        # fg = functional groups, mf = mass fraction
+        filenames = self.files_info.index.tolist()
+        _all_comps = self.files_reports[param].index.tolist()
+        cols_with_fg_mf_labs = list(self.compounds_properties)
+        fg_mf_labs = [
+            c for c in cols_with_fg_mf_labs if c.startswith("fg_mf_") if c != "fg_mf_total"
+        ]
+        fg_labs = [c[6:] for c in fg_mf_labs]
+        # create a df with iupac name index and fg_mf columns (underiv and deriv)
+        all_comps_df = self.compounds_properties
+        all_comps_df = all_comps_df[~all_comps_df.index.duplicated(keep="first")]
+        fg_mf_all = pd.DataFrame(index=_all_comps, columns=fg_mf_labs)
+        for idx in fg_mf_all.index.tolist():
+            fg_mf_all.loc[idx, fg_mf_labs] = all_comps_df.loc[idx, fg_mf_labs]
+        # create the aggregated dataframes and compute aggregated results
+        aggrrep = pd.DataFrame(columns=filenames, index=fg_labs, dtype="float")
+        aggrrep.index.name = param  # is the parameter
+        for col in filenames:
+            list_iupac = self.files_reports[param].index
+            signal = self.files_reports[param].loc[:, col].values
+            for fg, fg_mf in zip(fg_labs, fg_mf_labs):
+                # each compound contributes to the cumulative sum of each
+                # functional group for the based on the mass fraction it has
+                # of that functional group (fg_mf act as weights)
+                # if fg_mf in subrep: multiply signal for weight and sum
+                # to get aggregated
+                weights = fg_mf_all.loc[list_iupac, fg_mf].astype(signal.dtype)
 
-        for comp in rep.index.tolist():  # add conc values
-            for filename in list(rep):
-                try:
-                    rep.loc[comp, filename] = self.file_dfs[filename].loc[comp, param]
-                except KeyError:
-                    rep.loc[comp, filename] = 0
+                aggrrep.loc[fg, col] = (signal * weights).sum()
+        aggrrep = aggrrep.loc[(aggrrep != 0).any(axis=1), :]  # drop rows with only 0
+        aggrrep = aggrrep.sort_index(key=aggrrep[filenames].max(1).get, ascending=False)
+        self.files_aggrreps[param] = aggrrep
+        self.list_of_files_param_aggrreps.append(param)
+        return aggrrep
 
-        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
-        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
-        self.files_reports[param] = rep
-        self.list_of_files_param_reports.append(param)
-        return self.files_reports[param]
-
-    def create_replicates_param_report(self, param="conc_vial_mg_L"):
-        """ """
-        if len(self.sample_dfs) == 0:
-            self.create_samples()
+    def create_replicates_param_aggrrep(self, param="conc_vial_mg_L"):
+        """Aggregates compound concentration data by functional group for each
+        parameter across all FILES, providing a summarized view of functional
+        group concentrations. This aggregation facilitates the understanding
+        of functional group distribution across FILES."""
+        print("Info: create_param_aggrrep: ", param)
+        if param not in self.acceptable_params:
+            raise ValueError(f"{param = } is not an acceptable param")
+        if param not in self.list_of_replicates_param_reports:
+            self.create_replicates_param_report(param)
         if self.compounds_properties is None:
-            _ = self.load_compounds_properties()
-        rep = pd.DataFrame(
-            index=self.compounds_properties.index, columns=self.replicates_info.index, dtype="float"
+            self.load_compounds_properties()
+        # fg = functional groups, mf = mass fraction
+        replicatenames = self.replicates_info.index.tolist()
+        _all_comps = self.replicates_reports[param].index.tolist()
+        cols_with_fg_mf_labs = list(self.compounds_properties)
+        fg_mf_labs = [
+            c for c in cols_with_fg_mf_labs if c.startswith("fg_mf_") if c != "fg_mf_total"
+        ]
+        fg_labs = [c[6:] for c in fg_mf_labs]
+        # create a df with iupac name index and fg_mf columns (underiv and deriv)
+        comps_df = self.compounds_properties
+        all_comps_df = comps_df
+        all_comps_df = all_comps_df[~all_comps_df.index.duplicated(keep="first")]
+        fg_mf_all = pd.DataFrame(index=_all_comps, columns=fg_mf_labs)
+        for idx in fg_mf_all.index.tolist():
+            fg_mf_all.loc[idx, fg_mf_labs] = all_comps_df.loc[idx, fg_mf_labs]
+        # create the aggregated dataframes and compute aggregated results
+        aggrrep = pd.DataFrame(columns=replicatenames, index=fg_labs, dtype="float")
+        aggrrep.index.name = param  # is the parameter
+        aggrrep.fillna(0, inplace=True)
+        for col in replicatenames:
+            list_iupac = self.replicates_reports[param].index
+            signal = self.replicates_reports[param].loc[:, col].values
+            for fg, fg_mf in zip(fg_labs, fg_mf_labs):
+                # each compound contributes to the cumulative sum of each
+                # functional group for the based on the mass fraction it has
+                # of that functional group (fg_mf act as weights)
+                # if fg_mf in subrep: multiply signal for weight and sum
+                # to get aggregated
+                weights = fg_mf_all.loc[list_iupac, fg_mf].astype(signal.dtype)
+
+                aggrrep.loc[fg, col] = (signal * weights).sum()
+        aggrrep = aggrrep.loc[(aggrrep != 0).any(axis=1), :]  # drop rows with only 0
+        aggrrep = aggrrep.sort_index(key=aggrrep[replicatenames].max(1).get, ascending=False)
+        self.replicates_aggrreps[param] = aggrrep
+        self.list_of_replicates_param_aggrreps.append(param)
+        return aggrrep
+
+
+    def create_samples_param_aggrrep(self, param: str = "conc_vial_mg_L"):
+        print(f"Info: create_samples_param_aggrrep: {param = }")
+        if param not in self.acceptable_params:
+            raise ValueError(f"{param = } is not an acceptable param")
+        if param not in self.list_of_replicates_param_aggrreps:
+            self.create_replicates_param_aggrrep(param)
+        replicate_to_sample_rename = dict(
+            zip(self.replicates_info.index.tolist(), self.replicates_info["samplename"])
         )
-        rep.index.name = param
-
-        for comp in rep.index.tolist():  # add conc values
-            for replicatename in list(rep):
-                try:
-                    rep.loc[comp, replicatename] = self.replicate_dfs[replicatename].loc[
-                        comp, param
-                    ]
-                except KeyError:
-                    rep.loc[comp, replicatename] = 0
-
-        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
-        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
-        self.replicates_reports[param] = rep
-        self.list_of_replicates_param_reports.append(param)
-        return self.replicates_reports[param]
-
-    def create_samples_param_report(self, param="conc_vial_mg_L"):
-        """ """
-        if len(self.sample_dfs) == 0:
-            self.create_samples()
-        if self.compounds_properties is None:
-            _ = self.load_compounds_properties()
-        rep = pd.DataFrame(
-            index=self.compounds_properties.index, columns=self.samples_info.index, dtype="float"
-        )
-        rep_std = pd.DataFrame(
-            index=self.compounds_properties.index, columns=self.samples_info.index, dtype="float"
-        )
-        rep.index.name = param
-        rep_std.index.name = param
-
-        for comp in rep.index.tolist():  # add conc values
-            for samplename in list(rep):
-                try:
-                    ave = self.sample_dfs[samplename].loc[comp, param]
-                except KeyError:
-                    ave = 0
-                try:
-                    std = self.sample_dfs_std[samplename].loc[comp, param]
-                except KeyError:
-                    std = np.nan
-                rep.loc[comp, samplename] = ave
-                rep_std.loc[comp, samplename] = std
-
-        rep = rep.sort_index(key=rep.max(1).get, ascending=False)
-        rep = rep.loc[:, rep.any(axis=0)]  # drop columns with only 0s
-        rep_std = rep_std.reindex(rep.index)
-        self.samples_reports[param] = rep
-        self.samples_reports_std[param] = rep_std
-        self.list_of_samples_param_reports.append(param)
-        return rep, rep_std
+        replicateagg = self.replicates_aggrreps[param].copy()
+        replicateagg.rename(columns=replicate_to_sample_rename, inplace=True)
+        self.samples_aggrreps[param] = replicateagg.T.groupby(by=replicateagg.columns).mean().T
+        self.samples_aggrreps_std[param] = replicateagg.T.groupby(by=replicateagg.columns).std().T
+        self.list_of_samples_param_aggrreps.append(param)
+        return self.samples_aggrreps[param], self.samples_aggrreps_std[param]
 
 
 class Sample:
@@ -429,7 +555,9 @@ class Sample:
 
 # %%
 # if __file__ == "main":
-folder_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE")
+folder_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220")
+out_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220\output")
+out_path.mkdir(exist_ok=True)
 hplc = Project(folder_path)
 files_info = hplc.load_files_info()
 # replicates_info = hplc.create_replicates_info()
@@ -439,33 +567,42 @@ hplc.create_samples()
 fpr = hplc.create_files_param_report()
 rpr = hplc.create_replicates_param_report()
 spr, sprd = hplc.create_samples_param_report()
-# %%
-fpr.to_clipboard()
-# hplc.create_compounds_properties()
+# #%%
+fpa = hplc.create_files_param_aggrrep()
+rpa = hplc.create_replicates_param_aggrrep()
+spa, spad = hplc.create_samples_param_aggrrep()
+# # hplc.create_compounds_properties()
 # %%
 mf = plot_ave_std(
     hplc,
-    width=7,
-    min_y_thresh=50,
-    legend_location="outside",
-    y_lim=[0, 10000],
+    height=5,
+    width=8,
+    aggr=False,
+    min_y_thresh=100,
+    legend=None,
+    x_ticklabels_rotation=30,
+    # y_lim=[0, 10000],
 )
+#%%
+# base = hplc.samples_reports["conc_vial_mg_L"]
+# def sample_difference(df:pd.DataFrame, baseline_col:str):
+#     diff_df = df.loc[:, df.columns != baseline_col].sub(df[baseline_col], axis=0)
+#     rel_diff_df = diff_df.div(df.loc[:, df.columns != baseline_col])
+#     return diff_df
 
-# _samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
-# _samples_info.reset_index(inplace=True)
-# _samples_info.set_index("samplename", drop=True, inplace=True)
-# %%
-# df = samples_info.loc[
-#     a, :
-# ]  # Convert the DataFrame such that each element of the list becomes a row
-# # %%
-# df_exploded = df.apply(pd.Series.explode).reset_index()
-# # %%
-# # Group by the original index to get individual dataframes
-# grouped = df_exploded.groupby(df_exploded.index)
+# a = sample_difference(hplc.samples_reports["conc_vial_mg_L"], "CLS220AP")
 
-# # Create a dictionary or list to hold the individual dataframes
-# dfs = {k: v.drop("index", axis=1) for k, v in grouped}
-# # %%
+# b = a.T
+# c=  b.loc[:, (b > 0).any()]
+# c = c.fillna(0)
+# #%%
+
+# mf = MyFigure(out_path=out_path, height=8, width=8, # legend_bbox_xy=(1,1),
+#               legend_loc="upper left", x_ticklabels_rotation=30,
+#               y_lim=[-100, 500],)
+# c.plot(kind="bar", ax=mf.axs[0], edgecolor='k', width=0.8)
+# mf.save_figure()
+
+
 
 # %%

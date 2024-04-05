@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 from hplc_data_analysis.main import Project
-from hplc_data_analysis.myfigure import MyFigure
+from hplc_data_analysis.myfigure import MyFigure, clrs
 
 lttrs: list[str] = list(string.ascii_lowercase)
 
@@ -219,7 +219,6 @@ def _annotate_outliers_in_plot(ax, df_ave, df_std, y_lim):
 
 def plot_ave_std(
     proj: Project,
-    filename: str = "plot",
     files_or_samples: Literal["files", "samples"] = "samples",
     param: str = "conc_vial_mg_L",
     aggr: bool = False,
@@ -231,21 +230,27 @@ def plot_ave_std(
     reorder_samples: list[str] | None = None,
     item_to_color_to_hatch: pd.DataFrame | None = None,
     yt_sum_label: str = "total\n(right axis)",
-    y_lim: tuple[float] | None = None,
-    y_lab: str | None = None,
-    yt_lab: str | None = None,
-    color_palette: str = "deep",
-    x_label_rotation: int = 0,
-    legend_location: Literal["best", "outside"] = "best",
-    legend_columns: int = 1,
-    legend_x_anchor: float = 1,
-    legend_y_anchor: float = 1.02,
-    legend_labelspacing: float = 0.5,
-    legend_title: str | None = None,
     **kwargs,
 ) -> MyFigure:
     """ """
-
+    if show_total_in_twinx:
+        plot_twinx: bool = True
+    else:
+        plot_twinx: bool = None
+    default_kwargs = {
+        "filename": "plot" + param,
+        "out_path": proj.out_path,
+        "height": 4,
+        "width": 4,
+        "grid": proj.plot_grid,
+        "text_font": proj.plot_font,
+        "y_lab": Project.param_to_axis_label[param],
+        "yt_lab": Project.param_to_axis_label[param],
+        "twinx": plot_twinx,
+        # "legend": False,
+    }
+    # Update kwargs with the default key-value pairs if the key is not present in kwargs
+    kwargs = {**default_kwargs, **kwargs}
     # create folder where Plots are stored
     out_path = plib.Path(Project.out_path, "plots")
     out_path.mkdir(parents=True, exist_ok=True)
@@ -289,73 +294,38 @@ def plot_ave_std(
         colors = [item_to_color_to_hatch.loc[item, "clr"] for item in df_ave.columns]
         hatches = [item_to_color_to_hatch.loc[item, "htch"] for item in df_ave.columns]
     else:  # no specific colors and hatches specified
-        colors = sns.color_palette(color_palette, df_ave.shape[1])
+        colors = clrs
         hatches = htchs
-
-    if show_total_in_twinx:
-        plot_twinx: bool = True
-    else:
-        plot_twinx: bool = None
-
-    if y_lab is None:
-        y_lab = Project.param_to_axis_label[param]
-    if show_total_in_twinx:
-        legend_x_anchor += 0.14
-        yt_lab = y_lab
 
     myfig = MyFigure(
         rows=1,
         cols=1,
-        twinx=plot_twinx,
-        text_font=Project.plot_font,
-        y_lab=y_lab,
-        yt_lab=yt_lab,
-        y_lim=y_lim,
-        legend=False,
-        grid=Project.plot_grid,
         **kwargs,
     )
     if df_std.isna().all().all() or df_std.empty:  # means that no std is provided
         df_ave.plot(
             ax=myfig.axs[0],
             kind="bar",
-            rot=x_label_rotation,
             width=0.9,
             edgecolor="k",
             legend=False,
             capsize=3,
             color=colors,
         )
-        bars = myfig.axs[0].patches  # needed to add patches to the bars
-        n_different_hatches = int(len(bars) / df_ave.shape[0])
     else:  # no legend is represented but non-significant values are shaded
         mask = (df_ave.abs() > df_std.abs()) | df_std.isna()
 
         df_ave[mask].plot(
             ax=myfig.axs[0],
             kind="bar",
-            rot=x_label_rotation,
             width=0.9,
             edgecolor="k",
             legend=False,
             yerr=df_std[mask],
             capsize=3,
             color=colors,
-            label="_nolegend",
+            label="_nolegend_",
         )
-        df_ave[~mask].plot(
-            ax=myfig.axs[0],
-            kind="bar",
-            rot=x_label_rotation,
-            width=0.9,
-            legend=False,
-            edgecolor="grey",
-            color=colors,
-            alpha=0.5,
-            label="_nolegend",
-        )
-        bars = myfig.axs[0].patches  # needed to add patches to the bars
-        n_different_hatches = int(len(bars) / df_ave.shape[0] / 2)
     if show_total_in_twinx:
         myfig.axts[0].scatter(
             df_ave.index,
@@ -377,56 +347,34 @@ def plot_ave_std(
                 linestyle="None",
                 color="grey",
                 ecolor="k",
+                label="_nolegend_",
             )
-    bar_hatches = []
-    # get a list with the hatches
-    for h in hatches[:n_different_hatches] + hatches[:n_different_hatches]:
-        for n in range(df_ave.shape[0]):  # htcs repeated for samples
-            bar_hatches.append(h)  # append based on samples number
-    for bar, hatch in zip(bars, bar_hatches):  # assign hatches to each bar
-        bar.set_hatch(hatch)
-    myfig.axs[0].set(xlabel=None)
-    if x_label_rotation != 0:
-        myfig.axs[0].set_xticklabels(
-            df_ave.index, rotation=x_label_rotation, ha="right", rotation_mode="anchor"
+    if not df_std.isna().all().all() or df_std.empty:
+        df_ave[~mask].plot(
+            ax=myfig.axs[0],
+            kind="bar",
+            width=0.9,
+            legend=False,
+            edgecolor="grey",
+            color=colors,
+            alpha=0.5,
+            label="_nolegend_",
         )
-    if legend_location is not None:
-        hnd_ax, lab_ax = myfig.axs[0].get_legend_handles_labels()
-        if not df_std.empty:
-            hnd_ax = hnd_ax[: len(hnd_ax) // 2]
-            lab_ax = lab_ax[: len(lab_ax) // 2]
-        if legend_labelspacing > 0.5:  # large legend spacing for molecules
-            myfig.axs[0].plot(np.nan, np.nan, "-", color="None", label=" ")
-            hhhh, aaaa = myfig.axs[0].get_legend_handles_labels()
-            hnd_ax.append(hhhh[0])
-            lab_ax.append(aaaa[0])
-        if show_total_in_twinx:
-            hnd_axt, lab_axt = myfig.axt[0].get_legend_handles_labels()
-        else:
-            hnd_axt, lab_axt = [], []
-        if legend_location == "outside":  # legend goes outside of plot area
-            myfig.axs[0].legend(
-                hnd_ax + hnd_axt,
-                lab_ax + lab_axt,
-                loc="upper left",
-                ncol=legend_columns,
-                bbox_to_anchor=(legend_x_anchor, legend_y_anchor),
-                labelspacing=legend_labelspacing,
-                title=legend_title,
-            )
-        else:  # legend is inside of plot area
-            myfig.axs[0].legend(
-                hnd_ax + hnd_axt,
-                lab_ax + lab_axt,
-                loc=legend_location,
-                ncol=legend_columns,
-                labelspacing=legend_labelspacing,
-                title=legend_title,
-            )
-    # annotate ave+-std at the top of outliers bar (exceeding y_lim)
-    if annotate_outliers and (y_lim is not None):  # and (not df_std.empty):
-        _annotate_outliers_in_plot(myfig.axs[0], df_ave, df_std, y_lim)
-    myfig.save_figure(filename, out_path)
+    existing_patches = set(myfig.axs[0].patches)
+
+    # Plot the DataFrame
+    df_ave[~mask].plot(
+        ax=myfig.axs[0],
+        kind="bar",
+        width=0.9,
+        legend=False,
+        edgecolor="grey",
+        color=colors,
+        alpha=0.5,
+    )
+
+    # Identify new patches added by the DataFrame plot
+    myfig.save_figure()
     return myfig
 
 
