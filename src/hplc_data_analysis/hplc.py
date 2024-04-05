@@ -176,7 +176,7 @@ class Project:
         if self.replicates_info is None:
             _ = self.create_replicates_info()
         self.samples_info = self.files_info.reset_index().groupby("samplename").agg(list)
-        self.replicates_info['samplename'] = [a[0] for a in self.replicates_info['samplename']]
+        self.replicates_info["samplename"] = [a[0] for a in self.replicates_info["samplename"]]
         self.samples_info.reset_index(inplace=True)
         self.samples_info.set_index("samplename", drop=True, inplace=True)
         print("Info: create_samples_info: samples_info created")
@@ -206,7 +206,7 @@ class Project:
             if param in self.file_dfs[filename].columns
         }
         # Get the union of all indices from the individual DataFrames
-        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join="outer")
         # Reindex the DataFrame to include all unique indices, filling missing values with 0
         rep = rep.sort_index(key=rep.max(axis=1).get, ascending=False)
         rep = rep.loc[:, rep.any(axis=0)]
@@ -232,7 +232,7 @@ class Project:
             if param in self.replicate_dfs[replicatename].columns
         }
         # Get the union of all indices from the individual DataFrames
-        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join="outer")
         # Sort by the max value in each row, then filter out columns that only contain 0s
         rep = rep.sort_index(key=rep.max(axis=1).get, ascending=False)
         rep = rep.loc[:, rep.any(axis=0)]
@@ -263,8 +263,10 @@ class Project:
             if param in self.sample_dfs_std[samplename].columns
         }
         # Get the union of all indices from the individual sample DataFrames (assuming indices are the same for std and avg)
-        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join='outer')
-        rep_std = pd.concat(series_dict_std.values(), axis=1, keys=series_dict_std.keys(), join='outer')
+        rep = pd.concat(series_dict.values(), axis=1, keys=series_dict.keys(), join="outer")
+        rep_std = pd.concat(
+            series_dict_std.values(), axis=1, keys=series_dict_std.keys(), join="outer"
+        )
         # Populate the DataFrames with values
 
         # Sort by the max value in each row and filter out columns that only contain 0s in the average report
@@ -435,7 +437,6 @@ class Project:
         self.list_of_replicates_param_aggrreps.append(param)
         return aggrrep
 
-
     def create_samples_param_aggrrep(self, param: str = "conc_vial_mg_L"):
         print(f"Info: create_samples_param_aggrrep: {param = }")
         if param not in self.acceptable_params:
@@ -556,7 +557,9 @@ class Sample:
 # %%
 # if __file__ == "main":
 folder_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220")
-out_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220\output")
+out_path = plib.Path(
+    r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220\output"
+)
 out_path.mkdir(exist_ok=True)
 hplc = Project(folder_path)
 files_info = hplc.load_files_info()
@@ -573,17 +576,24 @@ rpa = hplc.create_replicates_param_aggrrep()
 spa, spad = hplc.create_samples_param_aggrrep()
 # # hplc.create_compounds_properties()
 # %%
+mf = plot_ave_std
+
+
+
+
+#%%
 mf = plot_ave_std(
     hplc,
-    height=5,
-    width=8,
+    height=6,
+    width=10,
     aggr=False,
-    min_y_thresh=100,
-    legend=None,
+    min_y_thresh=200,
     x_ticklabels_rotation=30,
-    # y_lim=[0, 10000],
+    legend_ncols=1,
+    legend_bbox_xy=(1,1),
+    y_lim=[0, 4000],
 )
-#%%
+# %%
 # base = hplc.samples_reports["conc_vial_mg_L"]
 # def sample_difference(df:pd.DataFrame, baseline_col:str):
 #     diff_df = df.loc[:, df.columns != baseline_col].sub(df[baseline_col], axis=0)
@@ -602,7 +612,6 @@ mf = plot_ave_std(
 #               y_lim=[-100, 500],)
 # c.plot(kind="bar", ax=mf.axs[0], edgecolor='k', width=0.8)
 # mf.save_figure()
-
 
 
 # %%

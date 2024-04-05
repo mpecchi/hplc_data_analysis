@@ -247,6 +247,7 @@ def plot_ave_std(
         "y_lab": Project.param_to_axis_label[param],
         "yt_lab": Project.param_to_axis_label[param],
         "twinx": plot_twinx,
+        "masked_unsignificant_data": True,
         # "legend": False,
     }
     # Update kwargs with the default key-value pairs if the key is not present in kwargs
@@ -314,7 +315,6 @@ def plot_ave_std(
         )
     else:  # no legend is represented but non-significant values are shaded
         mask = (df_ave.abs() > df_std.abs()) | df_std.isna()
-
         df_ave[mask].plot(
             ax=myfig.axs[0],
             kind="bar",
@@ -324,6 +324,17 @@ def plot_ave_std(
             yerr=df_std[mask],
             capsize=3,
             color=colors,
+            label="_nolegend_",
+        )
+
+        df_ave[~mask].plot(
+            ax=myfig.axs[0],
+            kind="bar",
+            width=0.9,
+            legend=False,
+            edgecolor="grey",
+            color=colors,
+            alpha=0.5,
             label="_nolegend_",
         )
     if show_total_in_twinx:
@@ -349,29 +360,6 @@ def plot_ave_std(
                 ecolor="k",
                 label="_nolegend_",
             )
-    if not df_std.isna().all().all() or df_std.empty:
-        df_ave[~mask].plot(
-            ax=myfig.axs[0],
-            kind="bar",
-            width=0.9,
-            legend=False,
-            edgecolor="grey",
-            color=colors,
-            alpha=0.5,
-            label="_nolegend_",
-        )
-    existing_patches = set(myfig.axs[0].patches)
-
-    # Plot the DataFrame
-    df_ave[~mask].plot(
-        ax=myfig.axs[0],
-        kind="bar",
-        width=0.9,
-        legend=False,
-        edgecolor="grey",
-        color=colors,
-        alpha=0.5,
-    )
 
     # Identify new patches added by the DataFrame plot
     myfig.save_figure()

@@ -229,6 +229,7 @@ class MyFigure:
             "legend_borderpad": 0.3,
             "legend_handlelength": 1.5,
             "annotate_outliers": None,
+            "masked_unsignificant_data": None,
         }
         return defaults
 
@@ -369,7 +370,13 @@ class MyFigure:
         """
         Add a legend to the figure.
         """
-        for sprop in ["legend", "legend_loc", "legend_ncols", "legend_title"]:
+        for sprop in [
+            "legend",
+            "legend_loc",
+            "legend_ncols",
+            "legend_title",
+            "masked_unsignificant_data",
+        ]:
             self.broad_props[sprop] = self._broadcast_value_prop(self.kwargs[sprop], sprop)
         for lprop in ["legend_bbox_xy"]:
             self.broad_props[lprop] = self._broadcast_list_prop(self.kwargs[lprop], lprop)
@@ -378,7 +385,13 @@ class MyFigure:
 
             for i, ax in enumerate(self.axs):
                 if self.broad_props["legend"][i]:
+                    hnd_ax, lab_ax = ax.get_legend_handles_labels()
+                    if self.broad_props["masked_unsignificant_data"][i]:
+                        hnd_ax = hnd_ax[: len(hnd_ax) // 2]
+                        lab_ax = lab_ax[: len(lab_ax) // 2]
                     ax.legend(
+                        hnd_ax,
+                        lab_ax,
                         loc=self.broad_props["legend_loc"][i],
                         ncol=self.broad_props["legend_ncols"][i],
                         title=self.broad_props["legend_title"][i],
@@ -396,6 +409,9 @@ class MyFigure:
             for i, (ax, axt) in enumerate(zip(self.axs, self.axts)):
                 if self.broad_props["legend"][i]:
                     hnd_ax, lab_ax = ax.get_legend_handles_labels()
+                    if self.broad_props["masked_unsignificant_data"][i]:
+                        hnd_ax = hnd_ax[: len(hnd_ax) // 2]
+                        lab_ax = lab_ax[: len(lab_ax) // 2]
                     hnd_axt, lab_axt = axt.get_legend_handles_labels()
                     ax.legend(
                         hnd_ax + hnd_axt,
@@ -637,7 +653,6 @@ class MyFigure:
 
     def annotate_outliers(self):
 
-
         def extract_ave_std_from_ax(ax: Axes):
 
             bars = [b for b in ax.patches if isinstance(b, mpatches.Rectangle)]
@@ -658,11 +673,16 @@ class MyFigure:
                 else:
                     std_values.append(0)
 
-            df_ave = pd.DataFrame([ave_values], columns=[f'Group {i // bars_per_group + 1} - Bar {i % bars_per_group + 1}' for i in range(len(bars))])
+            df_ave = pd.DataFrame(
+                [ave_values],
+                columns=[
+                    f"Group {i // bars_per_group + 1} - Bar {i % bars_per_group + 1}"
+                    for i in range(len(bars))
+                ],
+            )
             df_std = pd.DataFrame([std_values], columns=df_ave.columns)
 
             return df_ave, df_std
-
 
         self.broad_props["annotate_outliers"] = self._broadcast_value_prop(
             self.kwargs["annotate_outliers"], "annotate_outliers"
@@ -676,7 +696,7 @@ class MyFigure:
 
                 # Set dx and dy for text positioning adjustments
             df_ave, df_std = extract_ave_std_from_ax(ax)
-            y_lim =ax.get_ylim()
+            y_lim = ax.get_ylim()
             dx = 0.15 * len(df_ave.index)
             dy = 0.04
             tform = blended_transform_factory(ax.transData, ax.transAxes)
@@ -689,7 +709,9 @@ class MyFigure:
             try:
                 dfao["xpos"] = [p.get_x() + p.get_width() / 2 for p in ax.patches]
             except ValueError:  # otherwise the masking adds twice the columns
-                dfao["xpos"] = [p.get_x() + p.get_width() / 2 for p in ax.patches[: len(ax.patches) // 2]]
+                dfao["xpos"] = [
+                    p.get_x() + p.get_width() / 2 for p in ax.patches[: len(ax.patches) // 2]
+                ]
             cond = (dfao["ave"] < y_lim[0]) | (dfao["ave"] > y_lim[1])
             dfao = dfao.drop(dfao[~cond].index)
             for ao in dfao.index.tolist():  # loop through bars
@@ -703,12 +725,16 @@ class MyFigure:
                     dfao.loc[ao, "H/L"] = "H"
                     dfao.loc[ao, "text"] = "{:.2f}".format(round(dfao.loc[ao, "ave"], 2)).strip()
                     if (dfao.loc[ao, "std"] != 0) & (~np.isnan(dfao.loc[ao, "std"])):
-                        dfao.loc[ao, "text"] += r"$\pm$" + "{:.2f}".format(round(dfao.loc[ao, "std"], 2))
+                        dfao.loc[ao, "text"] += r"$\pm$" + "{:.2f}".format(
+                            round(dfao.loc[ao, "std"], 2)
+                        )
                 elif dfao.loc[ao, "ave"] < y_lim[0]:
                     dfao.loc[ao, "H/L"] = "L"
                     dfao.loc[ao, "text"] = str(round(dfao.loc[ao, "ave"], 2)).strip()
                     if dfao.loc[ao, "std"] != 0:
-                        dfao.loc[ao, "text"] += r"$\pm$" + "{:.2f}".format(round(dfao.loc[ao, "std"], 2))
+                        dfao.loc[ao, "text"] += r"$\pm$" + "{:.2f}".format(
+                            round(dfao.loc[ao, "std"], 2)
+                        )
                 else:
                     print("Something is wrong", dfao.loc[ao, "ave"])
             for hl, ypos, dy in zip(["L", "H"], [0.02, 0.98], [0.04, -0.04]):
@@ -716,7 +742,9 @@ class MyFigure:
                 dfao1["ypos"] = ypos
                 if not dfao1.empty:
                     dfao1 = dfao1.sort_values("xpos", ascending=True)
-                    dfao1["diffx"] = np.diff(dfao1["xpos"].values, prepend=dfao1["xpos"].values[0]) < dx
+                    dfao1["diffx"] = (
+                        np.diff(dfao1["xpos"].values, prepend=dfao1["xpos"].values[0]) < dx
+                    )
                     dfao1.reset_index(inplace=True)
 
                     for i in dfao1.index.tolist()[1:]:
