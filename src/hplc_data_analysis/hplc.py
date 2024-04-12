@@ -7,13 +7,7 @@ from typing import Any
 from scipy.signal import savgol_filter
 from lmfit.models import GaussianModel, LinearModel
 from typing import Literal
-from hplc_data_analysis.pubchem import (
-    name_to_properties,
-    get_compound_from_pubchempy,
-    report_difference,
-)
-from hplc_data_analysis.myfigure import MyFigure
-from hplc_data_analysis.plotting import plot_ave_std, plot_df_ave_std
+from hplc_data_analysis.pubchem import name_to_properties
 
 
 class Project:
@@ -186,7 +180,7 @@ class Project:
         if self.samples_info is None:
             self.create_samples_info()
         for samplename in self.samples_info.index.tolist():
-            sample_info = files_info.loc[files_info["samplename"] == samplename, :]
+            sample_info = self.files_info.loc[self.files_info["samplename"] == samplename, :]
             self.samples[samplename] = Sample(self, samplename, sample_info)
 
     def create_files_param_report(self, param="conc_vial_mg_L"):
@@ -556,62 +550,3 @@ class Sample:
 
 # %%
 # if __file__ == "main":
-folder_path = plib.Path(r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220")
-out_path = plib.Path(
-    r"C:\Users\mp933\OneDrive - Cornell University\Python\HPLC\SALLE\CLS220\output"
-)
-out_path.mkdir(exist_ok=True)
-hplc = Project(folder_path)
-files_info = hplc.load_files_info()
-# replicates_info = hplc.create_replicates_info()
-samples_info = hplc.create_samples_info()
-hplc.create_samples()
-# %%
-fpr = hplc.create_files_param_report()
-rpr = hplc.create_replicates_param_report()
-spr, sprd = hplc.create_samples_param_report()
-# #%%
-fpa = hplc.create_files_param_aggrrep()
-rpa = hplc.create_replicates_param_aggrrep()
-spa, spad = hplc.create_samples_param_aggrrep()
-# # hplc.create_compounds_properties()
-# %%
-mf = plot_ave_std
-
-
-
-
-#%%
-mf = plot_ave_std(
-    hplc,
-    height=6,
-    width=10,
-    aggr=False,
-    min_y_thresh=200,
-    x_ticklabels_rotation=30,
-    legend_ncols=1,
-    legend_bbox_xy=(1,1),
-    y_lim=[0, 4000],
-)
-# %%
-# base = hplc.samples_reports["conc_vial_mg_L"]
-# def sample_difference(df:pd.DataFrame, baseline_col:str):
-#     diff_df = df.loc[:, df.columns != baseline_col].sub(df[baseline_col], axis=0)
-#     rel_diff_df = diff_df.div(df.loc[:, df.columns != baseline_col])
-#     return diff_df
-
-# a = sample_difference(hplc.samples_reports["conc_vial_mg_L"], "CLS220AP")
-
-# b = a.T
-# c=  b.loc[:, (b > 0).any()]
-# c = c.fillna(0)
-# #%%
-
-# mf = MyFigure(out_path=out_path, height=8, width=8, # legend_bbox_xy=(1,1),
-#               legend_loc="upper left", x_ticklabels_rotation=30,
-#               y_lim=[-100, 500],)
-# c.plot(kind="bar", ax=mf.axs[0], edgecolor='k', width=0.8)
-# mf.save_figure()
-
-
-# %%
