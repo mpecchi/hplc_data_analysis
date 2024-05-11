@@ -2,9 +2,9 @@ import marshal
 from rdkit import Chem
 from rdkit.Chem import DataStructs
 from rdkit.Chem import rdmolops
-from rdkit.Chem.AllChem import (
+from rdkit.Chem.AllChem import (  # pylint: disable=no-name-in-module
     GetMorganFingerprintAsBitVect,
-)  # pylint: disable=no-name-in-module
+)
 
 
 class Fragmenter:
@@ -51,9 +51,7 @@ class Fragmenter:
                         add_this_match = False
 
                         for i in match:
-                            for neighbor in mol_searched_in.GetAtomWithIdx(
-                                i
-                            ).GetNeighbors():
+                            for neighbor in mol_searched_in.GetAtomWithIdx(i).GetNeighbors():
                                 if (
                                     neighbor.GetIdx()
                                     in atomIdxs_to_which_new_matches_have_to_be_adjacent
@@ -118,9 +116,7 @@ class Fragmenter:
                 )
 
             if not callable(function_to_choose_fragmentation):
-                raise TypeError(
-                    "function_to_choose_fragmentation needs to be a function."
-                )
+                raise TypeError("function_to_choose_fragmentation needs to be a function.")
             else:
                 if type(function_to_choose_fragmentation([{}, {}])) != dict:
                     raise TypeError(
@@ -129,9 +125,7 @@ class Fragmenter:
 
             if n_max_fragmentations_to_find != -1:
                 if n_max_fragmentations_to_find < 1:
-                    raise ValueError(
-                        "n_max_fragmentations_to_find has to be 1 or higher."
-                    )
+                    raise ValueError("n_max_fragmentations_to_find has to be 1 or higher.")
 
         if fragmentation_scheme_order is None:
             fragmentation_scheme_order = []
@@ -163,9 +157,7 @@ class Fragmenter:
 
             for SMARTS in list_SMARTS:
                 if SMARTS != "":
-                    self._fragmentation_scheme_group_number_lookup[SMARTS] = (
-                        group_number
-                    )
+                    self._fragmentation_scheme_group_number_lookup[SMARTS] = group_number
 
                     mol_SMARTS = Chem.MolFromSmarts(SMARTS)
                     self._fragmentation_scheme_pattern_lookup[SMARTS] = mol_SMARTS
@@ -219,9 +211,7 @@ class Fragmenter:
             mol_SMILES = SMILES_or_molecule
 
         if len(rdmolops.GetMolFrags(mol_SMILES)) != 1:
-            raise ValueError(
-                "fragment_complete does not accept multifragment molecules."
-            )
+            raise ValueError("fragment_complete does not accept multifragment molecules.")
 
         temp_fragmentations, success = self.__complete_fragmentation(mol_SMILES)
 
@@ -269,8 +259,8 @@ class Fragmenter:
         success = False
         fragmentation = {}
 
-        fragmentation, atomIdxs_included_in_fragmentation = (
-            self.__search_non_overlapping_solution(mol_SMILES, {}, set(), set())
+        fragmentation, atomIdxs_included_in_fragmentation = self.__search_non_overlapping_solution(
+            mol_SMILES, {}, set(), set()
         )
         success = len(atomIdxs_included_in_fragmentation) == target_atom_count
 
@@ -296,9 +286,7 @@ class Fragmenter:
                 )
             )
 
-            success = (
-                len(atomIdxs_included_in_fragmentation_so_far) == target_atom_count
-            )
+            success = len(atomIdxs_included_in_fragmentation_so_far) == target_atom_count
 
             if success:
                 fragmentation = fragmentation_so_far
@@ -313,16 +301,10 @@ class Fragmenter:
         atomIdxs_to_which_new_matches_have_to_be_adjacent,
     ):
 
-        n_atomIdxs_included_in_fragmentation = (
-            len(atomIdxs_included_in_fragmentation) - 1
-        )
+        n_atomIdxs_included_in_fragmentation = len(atomIdxs_included_in_fragmentation) - 1
 
-        while n_atomIdxs_included_in_fragmentation != len(
-            atomIdxs_included_in_fragmentation
-        ):
-            n_atomIdxs_included_in_fragmentation = len(
-                atomIdxs_included_in_fragmentation
-            )
+        while n_atomIdxs_included_in_fragmentation != len(atomIdxs_included_in_fragmentation):
+            n_atomIdxs_included_in_fragmentation = len(atomIdxs_included_in_fragmentation)
 
             for group_number in self.fragmentation_scheme_order:
                 list_SMARTS = self.fragmentation_scheme[group_number]
@@ -361,9 +343,7 @@ class Fragmenter:
                 atomIdxs_to_which_new_matches_have_to_be_adjacent,
             )
         else:
-            matches = Fragmenter.get_substruct_matches(
-                mol_searched_for, mol_searched_in, set()
-            )
+            matches = Fragmenter.get_substruct_matches(mol_searched_for, mol_searched_in, set())
 
         if matches:
             for match in matches:
@@ -519,15 +499,19 @@ class Fragmenter:
                                 continue
 
                             if n_found_groups == 0:
-                                use_this_match = not Fragmenter.__is_match_contained_in_fragmentation(
-                                    match, SMARTS, completed_fragmentation
+                                use_this_match = (
+                                    not Fragmenter.__is_match_contained_in_fragmentation(
+                                        match, SMARTS, completed_fragmentation
+                                    )
                                 )
                             else:
                                 if Fragmenter.__is_fragmentation_subset_of_other_fragmentation(
                                     fragmentation_so_far, completed_fragmentation
                                 ):
-                                    use_this_match = not Fragmenter.__is_match_contained_in_fragmentation(
-                                        match, SMARTS, completed_fragmentation
+                                    use_this_match = (
+                                        not Fragmenter.__is_match_contained_in_fragmentation(
+                                            match, SMARTS, completed_fragmentation
+                                        )
                                     )
 
                             if not use_this_match:
@@ -549,9 +533,7 @@ class Fragmenter:
                             this_SMARTS_fragmentation_so_far[SMARTS] = []
 
                         this_SMARTS_fragmentation_so_far[SMARTS].append(match)
-                        this_SMARTS_atomIdxs_included_in_fragmentation_so_far.update(
-                            match
-                        )
+                        this_SMARTS_atomIdxs_included_in_fragmentation_so_far.update(match)
 
                         # only allow matches that do not contain groups leading to incomplete matches
                         for (
@@ -593,9 +575,7 @@ class Fragmenter:
                             len(this_SMARTS_atomIdxs_included_in_fragmentation_so_far)
                             == heavy_atom_count
                         ):
-                            completed_fragmentations.append(
-                                this_SMARTS_fragmentation_so_far
-                            )
+                            completed_fragmentations.append(this_SMARTS_fragmentation_so_far)
                             complete_fragmentation_found = True
                             break
 
@@ -613,9 +593,7 @@ class Fragmenter:
                     for atom_idx in unassignes_atom_idx:
                         neighbor_atoms_idx = [
                             i.GetIdx()
-                            for i in mol_searched_in.GetAtomWithIdx(
-                                atom_idx
-                            ).GetNeighbors()
+                            for i in mol_searched_in.GetAtomWithIdx(atom_idx).GetNeighbors()
                         ]
 
                         for neighbor_atom_idx in neighbor_atoms_idx:
@@ -625,21 +603,16 @@ class Fragmenter:
                             ) in fragmentation_so_far.items():
                                 for found_match in found_matches:
                                     if neighbor_atom_idx in found_match:
-                                        if (
-                                            not found_smarts
-                                            in incomplete_matched_groups
-                                        ):
+                                        if not found_smarts in incomplete_matched_groups:
                                             incomplete_matched_groups[found_smarts] = []
 
                                         if (
                                             found_match
-                                            not in incomplete_matched_groups[
-                                                found_smarts
-                                            ]
+                                            not in incomplete_matched_groups[found_smarts]
                                         ):
-                                            incomplete_matched_groups[
-                                                found_smarts
-                                            ].append(found_match)
+                                            incomplete_matched_groups[found_smarts].append(
+                                                found_match
+                                            )
 
                     is_subset_of_groups_already_found = False
                     indexes_to_remove = []
@@ -659,9 +632,7 @@ class Fragmenter:
                     for index in sorted(indexes_to_remove, reverse=True):
                         del groups_leading_to_incomplete_fragmentations[index]
 
-                    groups_leading_to_incomplete_fragmentations.append(
-                        incomplete_matched_groups
-                    )
+                    groups_leading_to_incomplete_fragmentations.append(incomplete_matched_groups)
                     groups_leading_to_incomplete_fragmentations = sorted(
                         groups_leading_to_incomplete_fragmentations, key=len
                     )
@@ -675,9 +646,7 @@ class Fragmenter:
         )
 
     @classmethod
-    def __is_fragmentation_subset_of_other_fragmentation(
-        cls, fragmentation, other_fragmentation
-    ):
+    def __is_fragmentation_subset_of_other_fragmentation(cls, fragmentation, other_fragmentation):
         n_found_groups = len(fragmentation)
         n_found_other_groups = len(other_fragmentation)
 
@@ -690,9 +659,7 @@ class Fragmenter:
         n_found_SMARTS_that_are_subset = 0
         for found_SMARTS, _ in fragmentation.items():
             if found_SMARTS in other_fragmentation:
-                found_matches_set = set(
-                    frozenset(i) for i in fragmentation[found_SMARTS]
-                )
+                found_matches_set = set(frozenset(i) for i in fragmentation[found_SMARTS])
                 found_other_matches_set = set(
                     frozenset(i) for i in other_fragmentation[found_SMARTS]
                 )

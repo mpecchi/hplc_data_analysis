@@ -8,6 +8,7 @@ from scipy.signal import savgol_filter
 from lmfit.models import GaussianModel, LinearModel
 from typing import Literal
 from hplc_data_analysis.pubchem import name_to_properties
+from myfigure.myfigure import MyFigure
 
 
 class Project:
@@ -446,6 +447,155 @@ class Project:
         self.samples_aggrreps_std[param] = replicateagg.T.groupby(by=replicateagg.columns).std().T
         self.list_of_samples_param_aggrreps.append(param)
         return self.samples_aggrreps[param], self.samples_aggrreps_std[param]
+
+    def plot_report(
+        self,
+        files_or_samples: Literal["files", "samples"] = "samples",
+        report_or_aggrrep: Literal["report", "aggrrep"] = "report",
+        param: str = "conc_vial_mg_L",
+        show_total_in_twinx: bool = False,
+        min_y_thresh: float | None = None,
+        only_samples_to_plot: list[str] | None = None,
+        rename_samples: list[str] | None = None,
+        reorder_samples: list[str] | None = None,
+        item_to_color_to_hatch: pd.DataFrame | None = None,
+        yt_sum_label: str = "total\n(right axis)",
+        **kwargs,
+    ) -> MyFigure:
+        """ """
+        if param not in self.acceptable_params:
+            raise ValueError(f"{param = } is not an acceptable param")
+        if show_total_in_twinx:
+            plot_twinx: bool = True
+        else:
+            plot_twinx: bool = None
+        default_kwargs = {
+            "filename": "plot" + param,
+            "out_path": self.out_path,
+            "height": 4,
+            "width": 4,
+            "grid": self.plot_grid,
+            "text_font": self.plot_font,
+            "y_lab": self.param_to_axis_label[param],
+            "yt_lab": self.param_to_axis_label[param],
+            "twinx": plot_twinx,
+            "masked_unsignificant_data": True,
+            # "legend": False,
+        }
+        # Update kwargs with the default key-value pairs if the key is not present in kwargs
+        kwargs = {**default_kwargs, **kwargs}
+        # create folder where Plots are stored
+        out_path = plib.Path(self.out_path, "plots")
+        out_path.mkdir(parents=True, exist_ok=True)
+        if report_or_aggrrep is "report":  # then use compounds reports
+            if files_or_samples == "files":
+                df_ave = self.files_reports[param].T
+                df_std = pd.DataFrame()
+            elif files_or_samples == "samples":
+                df_ave = self.samples_reports[param].T
+                df_std = self.samples_reports_std[param].T
+        else:  # use aggregated reports
+            if files_or_samples == "files":
+                df_ave = self.files_aggrreps[param].T
+                df_std = pd.DataFrame()
+            elif files_or_samples == "samples":
+                df_ave = self.samples_aggrreps[param].T
+                df_std = self.samples_aggrreps_std[param].T
+
+        if only_samples_to_plot is not None:
+            df_ave = df_ave.loc[only_samples_to_plot, :].copy()
+            if files_or_samples == "samples":
+                df_std = df_std.loc[only_samples_to_plot, :].copy()
+
+        if rename_samples is not None:
+            df_ave.index = rename_samples
+            if files_or_samples == "samples":
+                df_std.index = rename_samples
+
+        if reorder_samples is not None:
+            filtered_reorder_samples = [idx for idx in reorder_samples if idx in df_ave.index]
+            df_ave = df_ave.reindex(filtered_reorder_samples)
+            if files_or_samples == "samples":
+                df_std = df_std.reindex(filtered_reorder_samples)
+
+        if min_y_thresh is not None:
+            df_ave = df_ave.loc[:, (df_ave > min_y_thresh).any(axis=0)].copy()
+            if files_or_samples == "samples":
+                df_std = df_std.loc[:, df_ave.columns].copy()
+
+        if item_to_color_to_hatch is not None:  # specific color and hatches to each fg
+            colors = [item_to_color_to_hatch.loc[item, "clr"] for item in df_ave.columns]
+            hatches = [item_to_color_to_hatch.loc[item, "htch"] for item in df_ave.columns]
+        else:  # no specific colors and hatches specified
+            colors = colors
+            hatches = hatches
+
+        myfig = MyFigure(
+            rows=1,
+            cols=1,
+            **kwargs,
+        )
+        if df_std.isna().all().all() or df_std.empty:  # means that no std is provided
+            df_ave.plot(
+                ax=myfig.axs[0],
+                kind="bar",
+                width=0.9,
+                edgecolor="k",
+                legend=False,
+                capsize=3,
+                color=colors,
+            )
+        else:  # no legend is represented but non-significant values are shaded
+            mask = (df_ave.abs() > df_std.abs()) | df_std.isna()
+            df_ave[mask].plot(
+                ax=myfig.axs[0],
+                kind="bar",
+                width=0.9,
+                edgecolor="k",
+                legend=False,
+                yerr=df_std[mask],
+                capsize=3,
+                color=colors,
+                label="_nolegend_",
+            )
+
+            df_ave[~mask].plot(
+                ax=myfig.axs[0],
+                kind="bar",
+                width=0.9,
+                legend=False,
+                edgecolor="grey",
+                color=colors,
+                alpha=0.5,
+                label="_nolegend_",
+            )
+        if show_total_in_twinx:
+            myfig.axts[0].scatter(
+                df_ave.index,
+                df_ave.sum(axis=1).values,
+                color="k",
+                linestyle="None",
+                edgecolor="k",
+                facecolor="grey",
+                s=100,
+                label=yt_sum_label,
+                alpha=0.5,
+            )
+            if not df_std.empty:
+                myfig.axts[0].errorbar(
+                    df_ave.index,
+                    df_ave.sum(axis=1).values,
+                    df_std.sum(axis=1).values,
+                    capsize=3,
+                    linestyle="None",
+                    color="grey",
+                    ecolor="k",
+                    label="_nolegend_",
+                )
+
+        # Identify new patches added by the DataFrame plot
+        myfig.save_figure()
+        return myfig
 
 
 class Sample:
