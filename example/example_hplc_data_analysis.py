@@ -7,7 +7,7 @@ from hplc_data_analysis.hplc import Project
 folder_path = plib.Path(__file__).resolve().parent
 # if running as a Jupyter notebook, use absolute paths
 # folder_path = r"absolute path to folder"
-
+folder_path = r"/Users/matteo/Projects/hplc_data_analysis/example/data"
 hplc = Project(folder_path)
 # %%
 # create files info (dilution and total sample concentration information need to be added manually)
@@ -26,6 +26,13 @@ list_of_all_filenames = files_info.index.tolist()
 list_of_all_replicatenames = replicates_info.index.tolist()
 list_of_all_samplenames = samples_info.index.tolist()
 # %%
+# this creates the compounds properties for all files
+compounds_properties = hplc.create_compounds_properties(update_saved_files_info=False)
+# %%
+# once the compounds properties are created and saved, they can be loaded to save time
+compounds_properties = hplc.load_compounds_properties()
+# %%
+
 # plot the chosen param for all files, names_to_keep is a list of the files to plot
 mf = hplc.plot_report(
     files_replicates_or_samples="files",
@@ -79,6 +86,16 @@ mf = hplc.plot_report(
 mf = hplc.plot_report(
     files_replicates_or_samples="samples",
     param="fraction_of_sample_fr",
+    names_to_keep=["FW250C1h1", "FWCP250C1h1", "FWCPMn250C1h1"],
+    y_axis_min_threshold=10000,
+    x_ticklabels_rotation=20,
+    legend_ncols=1,
+)
+# %%
+mf = hplc.plot_report(
+    files_replicates_or_samples="samples",
+    param="fraction_of_sample_fr",
+    report_or_aggrrep="aggrrep",
     names_to_keep=["FW250C1h1", "FWCP250C1h1", "FWCPMn250C1h1"],
     y_axis_min_threshold=10000,
     x_ticklabels_rotation=20,
