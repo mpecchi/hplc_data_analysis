@@ -6,9 +6,9 @@ import pubchempy as pcp
 from rdkit import Chem
 from rdkit.Chem import DataStructs
 from rdkit.Chem import rdmolops
-from rdkit.Chem.AllChem import (
+from rdkit.Chem.AllChem import (  # pylint: disable=no-name-in-module
     GetMorganFingerprintAsBitVect,
-)  # pylint: disable=no-name-in-module
+)
 from hplc_data_analysis.fragmenter import Fragmenter
 
 
