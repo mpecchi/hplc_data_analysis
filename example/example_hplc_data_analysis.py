@@ -1,11 +1,12 @@
 # %%
+import pathlib as plib
 from hplc_data_analysis.hplc import Project
 
-# this has to be changed to where the _example/data folder is
-folder_path = r"/Users/matteo/Projects/hplc_data_analysis/example/data"
-# folder_path = plib.Path(plib.Path(__file__).cwd(), 'data')
-# change this to folder_path = plib.Path(r"C:\Path\To\Your\Data") for your project
-# class methods need to be called at the beginning to influence all instances
+# this is the relative path to the folder where the data is
+# which is the same as where the script is __file__
+folder_path = plib.Path(__file__).resolve().parent
+# if running as a Jupyter notebook, use absolute paths
+# folder_path = r"absolute path to folder"
 
 hplc = Project(folder_path)
 # %%

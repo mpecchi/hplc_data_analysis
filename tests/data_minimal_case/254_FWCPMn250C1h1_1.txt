@@ -1,0 +1,22 @@
+[Header]
+Application Name	LabSolutions
+Version	5.97
+Data File Name	C:\Users\AG-LAB-EME2L\Desktop\Goldfarb Lab\Matteo\FW-CP-HTC\254_FWCPMn250C1h1_1_Method_F1-.2-1_B0-60-0_25min_254nm_8.lcd
+Output Date	6/9/2023
+Output Time	11:39:27 AM
+
+[Configuration]
+Instrument Name	MUFASA UV
+Instrument #	6
+Line #	1
+# of Detectors	1
+Detector ID	Detector A
+Detector Name	Detector A
+# of Channels	1
+
+[Peak Table(Detector A)]
+# of Peaks	36
+Peak#	R.Time	I.Time	F.Time	Area	Height	A/H	Conc.	Mark	ID#	Name	k'	Plate #	Plate Ht.	Tailing	Resolution	Sep.Factor	Area Ratio	Height Ratio	Conc. %	Norm Conc.
+1	1.342	1.192	1.458	1000	6855	5.103	0.000	   	16	2-methylcyclopentanone	0.000	1330	112.802	0.000	0.000	0.000	0	0	0.000	0.000
+29	19.146	19.133	19.383	1100	238	62.418	41	   M	2	phenol	13.262	121233	1.237	10.288	1.545	1.025	0	0	0.118	0.118
+
