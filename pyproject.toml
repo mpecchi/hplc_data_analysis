@@ -1,0 +1,29 @@
+[project]
+name = "hplc_data_analysis"
+version = "1.0.2"
+authors = [
+    { name = "Matteo Pecchi"}
+]
+description = "Tool for automatic analysis of multiple HPLC results"
+readme = "README.md"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+requires-python = ">=3.8"
+
+dependencies = [
+    'pathlib', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'ele', 'pubchempy',
+                      'rdkit', 'openpyxl', 'pyarrow', 'myfigure',
+]
+
+[project.urls]
+Homepage = "https://github.com/mpecchi/hplc_data_analysis"
+Documentation = "https://hplc-data-analysis.readthedocs.io/en/latest/"
+
+[tool.black]
+line-length = 100
+

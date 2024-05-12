@@ -1,0 +1,21 @@
+[Header]
+Application Name	LabSolutions
+Version	5.97
+Data File Name	C:\Users\AG-LAB-EME2L\Desktop\Goldfarb Lab\Matteo\FW-CP-HTC\210_FW250C1h1_2_Method_F.7-.5-.7_B0-60-0_25min_210nm_5.lcd
+Output Date	6/9/2023
+Output Time	11:49:01 AM
+
+[Configuration]
+Instrument Name	MUFASA UV
+Instrument #	6
+Line #	1
+# of Detectors	1
+Detector ID	Detector A
+Detector Name	Detector A
+# of Channels	1
+
+[Peak Table(Detector A)]
+# of Peaks	39
+Peak#	R.Time	I.Time	F.Time	Area	Height	A/H	Conc.	Mark	ID#	Name	k'	Plate #	Plate Ht.	Tailing	Resolution	Sep.Factor	Area Ratio	Height Ratio	Conc. %	Norm Conc.
+1	1.780	1.467	1.825	101	1937	6.506	0.000	   			0.000	1012	148.171	0.000	0.000	0.000	0	0	0.000	0.000
+3	2.163	2.017	2.300	201	58332	6.614	11	 V M	21	oxalic acid	0.215	2515	59.646	0.000	0.000	1.600	0	0	1.195	1.195
