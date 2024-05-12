@@ -1,14 +1,12 @@
 # %%
 from __future__ import annotations
 import pathlib as plib
-import numpy as np
 import pandas as pd
-from typing import Any
-from scipy.signal import savgol_filter
-from lmfit.models import GaussianModel, LinearModel
 from typing import Literal
+import matplotlib.patches as mpatches
+from matplotlib.axes import Axes
 from hplc_data_analysis.pubchem import name_to_properties
-from myfigure.myfigure import MyFigure
+from myfigure.myfigure import MyFigure, colors, hatches
 
 
 class Project:
@@ -450,125 +448,119 @@ class Project:
 
     def plot_report(
         self,
-        files_or_samples: Literal["files", "samples"] = "samples",
         report_or_aggrrep: Literal["report", "aggrrep"] = "report",
+        files_replicates_or_samples: Literal["files", "replicates", "samples"] = "samples",
         param: str = "conc_vial_mg_L",
+        names_to_keep: list[str] | None = None,
+        labels: list[str] | None = None,
         show_total_in_twinx: bool = False,
-        min_y_thresh: float | None = None,
-        only_samples_to_plot: list[str] | None = None,
-        rename_samples: list[str] | None = None,
-        reorder_samples: list[str] | None = None,
+        y_axis_min_threshold: float | None = None,
         item_to_color_to_hatch: pd.DataFrame | None = None,
         yt_sum_label: str = "total\n(right axis)",
+        remove_insignificant_values: bool = False,
         **kwargs,
     ) -> MyFigure:
         """ """
         if param not in self.acceptable_params:
             raise ValueError(f"{param = } is not an acceptable param")
-        if show_total_in_twinx:
-            plot_twinx: bool = True
+
+        out_path = plib.Path(self.out_path, "plots")
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        if report_or_aggrrep == "report":  # then use compounds reports
+            if files_replicates_or_samples == "files":
+                if param not in self.list_of_files_param_reports:
+                    self.create_files_param_report(param)
+                df_ave = self.files_reports[param].T
+                df_std = pd.DataFrame()
+            if files_replicates_or_samples == "replicates":
+                if param not in self.list_of_replicates_param_reports:
+                    self.create_replicates_param_report(param)
+                df_ave = self.replicates_reports[param].T
+                df_std = pd.DataFrame()
+            elif files_replicates_or_samples == "samples":
+                if param not in self.list_of_samples_param_reports:
+                    self.create_samples_param_report(param)
+                df_ave = self.samples_reports[param].T
+                df_std = self.samples_reports_std[param].T
+        else:  # use aggregated reports
+            if files_replicates_or_samples == "files":
+                if param not in self.list_of_files_param_aggrreps:
+                    self.create_files_param_aggrrep(param)
+                df_ave = self.files_aggrreps[param].T
+                df_std = pd.DataFrame()
+            if files_replicates_or_samples == "replicates":
+                if param not in self.list_of_replicates_param_aggrreps:
+                    self.create_replicates_param_aggrrep(param)
+                df_ave = self.replicates_aggrreps[param].T
+                df_std = pd.DataFrame()
+            elif files_replicates_or_samples == "samples":
+                if param not in self.list_of_samples_param_aggrreps:
+                    self.create_samples_param_aggrrep(param)
+                df_ave = self.samples_aggrreps[param].T
+                df_std = self.samples_aggrreps_std[param].T
+
+        if names_to_keep is not None:
+            df_ave = df_ave.loc[names_to_keep, :].copy()
+            if files_replicates_or_samples == "samples":
+                df_std = df_std.loc[names_to_keep, :].copy()
+
+        if labels is not None:
+            df_ave.index = labels
+            if files_replicates_or_samples == "samples":
+                df_std.index = labels
+
+        if y_axis_min_threshold is not None:
+            df_ave = df_ave.loc[:, (df_ave > y_axis_min_threshold).any(axis=0)].copy()
+            if files_replicates_or_samples == "samples":
+                df_std = df_std.loc[:, df_ave.columns].copy()
+
+        if item_to_color_to_hatch is not None:  # specific color and hatches to each fg
+            plot_colors = [item_to_color_to_hatch.loc[item, "clr"] for item in df_ave.columns]
+            plot_hatches = [item_to_color_to_hatch.loc[item, "htch"] for item in df_ave.columns]
+        else:  # no specific colors and hatches specified
+            plot_colors = colors
+            plot_hatches = hatches
+
+        if df_std.isna().all().all() or df_std.empty:
+            std_available = False
         else:
-            plot_twinx: bool = None
+            std_available = True
+
+        if remove_insignificant_values:
+            if std_available:
+                mask = (df_ave.abs() > df_std.abs()) | df_std.isna()
+                df_ave = df_ave[mask]
+                df_std = df_std[mask]
+
         default_kwargs = {
-            "filename": "plot" + param,
-            "out_path": self.out_path,
+            "filename": report_or_aggrrep + files_replicates_or_samples + param,
+            "out_path": out_path,
             "height": 4,
             "width": 4,
             "grid": self.plot_grid,
             "text_font": self.plot_font,
             "y_lab": self.param_to_axis_label[param],
             "yt_lab": self.param_to_axis_label[param],
-            "twinx": plot_twinx,
-            "masked_unsignificant_data": True,
-            # "legend": False,
+            "twinx": True if show_total_in_twinx else False,
+            "auto_apply_hatches_to_bars": False,
         }
         # Update kwargs with the default key-value pairs if the key is not present in kwargs
         kwargs = {**default_kwargs, **kwargs}
-        # create folder where Plots are stored
-        out_path = plib.Path(self.out_path, "plots")
-        out_path.mkdir(parents=True, exist_ok=True)
-        if report_or_aggrrep is "report":  # then use compounds reports
-            if files_or_samples == "files":
-                df_ave = self.files_reports[param].T
-                df_std = pd.DataFrame()
-            elif files_or_samples == "samples":
-                df_ave = self.samples_reports[param].T
-                df_std = self.samples_reports_std[param].T
-        else:  # use aggregated reports
-            if files_or_samples == "files":
-                df_ave = self.files_aggrreps[param].T
-                df_std = pd.DataFrame()
-            elif files_or_samples == "samples":
-                df_ave = self.samples_aggrreps[param].T
-                df_std = self.samples_aggrreps_std[param].T
-
-        if only_samples_to_plot is not None:
-            df_ave = df_ave.loc[only_samples_to_plot, :].copy()
-            if files_or_samples == "samples":
-                df_std = df_std.loc[only_samples_to_plot, :].copy()
-
-        if rename_samples is not None:
-            df_ave.index = rename_samples
-            if files_or_samples == "samples":
-                df_std.index = rename_samples
-
-        if reorder_samples is not None:
-            filtered_reorder_samples = [idx for idx in reorder_samples if idx in df_ave.index]
-            df_ave = df_ave.reindex(filtered_reorder_samples)
-            if files_or_samples == "samples":
-                df_std = df_std.reindex(filtered_reorder_samples)
-
-        if min_y_thresh is not None:
-            df_ave = df_ave.loc[:, (df_ave > min_y_thresh).any(axis=0)].copy()
-            if files_or_samples == "samples":
-                df_std = df_std.loc[:, df_ave.columns].copy()
-
-        if item_to_color_to_hatch is not None:  # specific color and hatches to each fg
-            colors = [item_to_color_to_hatch.loc[item, "clr"] for item in df_ave.columns]
-            hatches = [item_to_color_to_hatch.loc[item, "htch"] for item in df_ave.columns]
-        else:  # no specific colors and hatches specified
-            colors = colors
-            hatches = hatches
-
-        myfig = MyFigure(
-            rows=1,
-            cols=1,
-            **kwargs,
+        myfig = MyFigure(rows=1, cols=1, **kwargs)
+        df_ave.plot(
+            ax=myfig.axs[0],
+            kind="bar",
+            width=0.9,
+            edgecolor="k",
+            legend=False,
+            capsize=3,
+            color=plot_colors,
+            yerr=df_std if std_available else None,
         )
-        if df_std.isna().all().all() or df_std.empty:  # means that no std is provided
-            df_ave.plot(
-                ax=myfig.axs[0],
-                kind="bar",
-                width=0.9,
-                edgecolor="k",
-                legend=False,
-                capsize=3,
-                color=colors,
-            )
-        else:  # no legend is represented but non-significant values are shaded
-            mask = (df_ave.abs() > df_std.abs()) | df_std.isna()
-            df_ave[mask].plot(
-                ax=myfig.axs[0],
-                kind="bar",
-                width=0.9,
-                edgecolor="k",
-                legend=False,
-                yerr=df_std[mask],
-                capsize=3,
-                color=colors,
-                label="_nolegend_",
-            )
 
-            df_ave[~mask].plot(
-                ax=myfig.axs[0],
-                kind="bar",
-                width=0.9,
-                legend=False,
-                edgecolor="grey",
-                color=colors,
-                alpha=0.5,
-                label="_nolegend_",
-            )
+        apply_hatches_to_ax(myfig.axs[0], plot_hatches)
+
         if show_total_in_twinx:
             myfig.axts[0].scatter(
                 df_ave.index,
@@ -581,7 +573,7 @@ class Project:
                 label=yt_sum_label,
                 alpha=0.5,
             )
-            if not df_std.empty:
+            if std_available:
                 myfig.axts[0].errorbar(
                     df_ave.index,
                     df_ave.sum(axis=1).values,
@@ -696,6 +688,32 @@ class Sample:
         self.std = pd.concat(filled_dfs).groupby(level=0).std()
 
         return self.ave, self.std
+
+
+def apply_hatches_to_ax(ax: Axes, hatches_list: list[str]) -> None:
+    """
+    Apply hatch patterns to bars in the bar plots of each subplot.
+
+    This method iterates over all subplots and applies predefined hatch patterns to each bar,
+    enhancing the visual distinction between bars, especially in black and white printouts.
+    """
+    # Check if the plot is a bar plot
+    bars = [b for b in ax.patches if isinstance(b, mpatches.Rectangle)]
+    # If there are no bars, return immediately
+    if not bars:
+        return
+    num_groups = len(ax.get_xticks(minor=False))
+    # Determine the number of bars in each group
+    bars_in_group = len(bars) // num_groups
+    patterns = hatches_list[:bars_in_group]  # set hatch patterns in correct order
+    plot_hatches_list = []  # list for hatches in the order of the bars
+    for h in patterns:  # loop over patterns to create bar-ordered hatches
+        for _ in range(int(len(bars) / len(patterns))):
+            plot_hatches_list.append(h)
+    # loop over bars and hatches to set hatches in correct order
+    for b, hatch in zip(bars, plot_hatches_list):
+        b.set_hatch(hatch)
+        b.set_edgecolor("k")
 
 
 # %%
