@@ -9,6 +9,8 @@ def test_values(hplcproject):
     files_info_created = hplcproject.create_files_info()
     # load the files info with dilution data and concentration
     files_info = hplcproject.load_files_info(update_saved_files_info=False)
+
+    assert files_info_created.index.tolist() == files_info.index.tolist()
     # create replicates and samples info
     replicates_info = hplcproject.create_replicates_info()
     samples_info = hplcproject.create_samples_info()
