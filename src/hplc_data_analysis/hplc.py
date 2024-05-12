@@ -1,8 +1,8 @@
 # %%
 from __future__ import annotations
 import pathlib as plib
-import pandas as pd
 from typing import Literal
+import pandas as pd
 import matplotlib.patches as mpatches
 from matplotlib.axes import Axes
 from hplc_data_analysis.pubchem import name_to_properties
@@ -13,39 +13,33 @@ class Project:
 
     def __init__(
         self,
-        folder_path: plib.Path,
-        name: str | None = None,
-        auto_save_reports: bool = True,
-        load_delimiter: str = "\t",
-        load_skiprows: int = 18,
-        files_info_defauls_columns: list[str] | None = None,
-        columns_to_rename_in_files: dict[str, str] | None = None,
-        compounds_to_rename: dict[str, str] | None = None,
+        folder_path: plib.Path | str,
+        projectname: str | None = None,
+        file_load_skiprows: int = 18,
+        file_load_delimiter: Literal["\t", ",", ";"] = "\t",
+        columns_to_rename_and_keep_in_files: dict[str, str] | None = None,
+        compounds_to_rename_in_files: dict[str, str] | None = None,
         param_to_axis_label: dict[str, str] | None = None,
         plot_font: Literal["Dejavu Sans", "Times New Roman"] = "Dejavu Sans",
         plot_grid: bool = False,
     ):
-        self.folder_path = folder_path
+        self.folder_path = plib.Path(folder_path)
         self.out_path = plib.Path(folder_path, "output")
-        if name is None:
-            self.name = self.folder_path.parts[-1]
+        if projectname is None:
+            self.projectname = self.folder_path.parts[-1]
         else:
-            self.name = name
+            self.projectname = projectname
         self.plot_font = plot_font
         self.plot_grid = plot_grid
-        self.auto_save_reports = auto_save_reports
-        self.load_delimiter = load_delimiter
-        self.load_skiprows = load_skiprows
-        if files_info_defauls_columns is None:
-            self.files_info_defauls_columns = [
-                "dilution_factor",
-                "total_sample_conc_in_vial_mg_L",
-                "sample_yield_on_feedstock_basis_fr",
-            ]
-        else:
-            self.files_info_defauls_columns = files_info_defauls_columns
+        self.file_load_skiprows = file_load_skiprows
+        self.file_load_delimiter = file_load_delimiter
+        self.files_info_defauls_columns = [
+            "dilution_factor",
+            "total_sample_conc_in_vial_mg_L",
+            "sample_yield_on_feedstock_basis_fr",
+        ]
 
-        if columns_to_rename_in_files is None:
+        if columns_to_rename_and_keep_in_files is None:
             self.columns_to_rename_in_files = {
                 "Name": "comp_name",
                 "R.Time": "retention_time",
@@ -54,12 +48,12 @@ class Project:
                 "Conc.": "conc_vial_mg_L",
             }
         else:
-            self.columns_to_rename_in_files = columns_to_rename_in_files
+            self.columns_to_rename_and_keep_in_files = columns_to_rename_and_keep_in_files
 
         self.columns_to_keep_in_files = self.columns_to_rename_in_files.values()
 
-        if compounds_to_rename is None:
-            self.compounds_to_rename = {
+        if compounds_to_rename_in_files is None:
+            self.compounds_to_rename_in_files = {
                 "3-methyl-(2H)-furan-5-one": "4-methyl-2H-furan-5-one",
                 "4-methyl-(2H)-furan-5-one": "4-methyl-2H-furan-5-one",
                 "2,3-pentanedione": "pentane-2,3-dione",
@@ -67,7 +61,7 @@ class Project:
                 "5-(hydroxymethyl)furan-2-carbaldehyde": "5-HMF",
             }
         else:
-            self.compounds_to_rename = compounds_to_rename
+            self.compounds_to_rename_in_files = compounds_to_rename_in_files
         if param_to_axis_label is None:
             self.param_to_axis_label = {
                 "AdjArea": "Peak Area [-]",
@@ -110,44 +104,66 @@ class Project:
         self.list_of_replicates_param_aggrreps = []
         self.list_of_samples_param_aggrreps = []
 
-    def load_files_info(self) -> pd.DataFrame:
-        """ """
+    def load_files_info(self, update_saved_files_info: bool = True) -> pd.DataFrame:
+        """
+        Loads the files information from an Excel file and returns it as a DataFrame.
+
+        :param update_saved_files_info: Specifies whether to update the saved files_info.xlsx file.
+        :type update_saved_files_info: bool, optional
+        :return: The loaded files information as a DataFrame.
+        :rtype: pd.DataFrame
+        """
         files_info_path = plib.Path(self.folder_path, "files_info.xlsx")
         if files_info_path.exists():
-            self.files_info = pd.read_excel(
-                files_info_path, engine="openpyxl", index_col="filename"
-            )
+            files_info = pd.read_excel(files_info_path, engine="openpyxl", index_col="filename")
+            self.files_info = self._add_default_to_files_info(files_info)
             print("Info: files_info loaded")
         else:
             print("Info: files_info not found")
-            self.create_files_info()
-        self._add_default_to_files_info()
-        self.files_info.to_excel(plib.Path(self.folder_path, "files_info.xlsx"))
+            self.files_info = self.create_files_info()
+        if update_saved_files_info:
+            self.files_info.to_excel(plib.Path(self.folder_path, "files_info.xlsx"))
         return self.files_info
 
-    def create_files_info(self) -> pd.DataFrame:
+    def create_files_info(self, update_saved_files_info: bool = False) -> pd.DataFrame:
         """ """
-        filename: int = [a.parts[-1].split(".")[0] for a in list(self.folder_path.glob("**/*.txt"))]
+        filename = [a.parts[-1].split(".")[0] for a in list(self.folder_path.glob("**/*.txt"))]
         hplc_method = [f.split("_")[0] for f in filename]
         samplename = [f.split("_")[1] for f in filename]
         replicatenumber = [f.split("_")[2] for f in filename]
         replicatename = [s + "_" + r for s, r in zip(samplename, replicatenumber)]
-        self.files_info = pd.DataFrame(
-            {
-                "filename": filename,
+        files_info_unsorted = pd.DataFrame(
+            index=filename,
+            data={
                 "hplc_method": hplc_method,
                 "samplename": samplename,
                 "replicatename": replicatename,
-            }
+            },
         )
-        self.files_info.set_index("filename", drop=True, inplace=True)
+        files_info = files_info_unsorted.sort_index()
+        files_info.index.name = "filename"
+        self.files_info = self._add_default_to_files_info(files_info)
+        if update_saved_files_info:
+            self.files_info.to_excel(plib.Path(self.folder_path, "files_info.xlsx"))
         return self.files_info
 
-    def _add_default_to_files_info(self):
-        """ """
+    def _add_default_to_files_info(self, files_info_no_defaults: pd.DataFrame) -> pd.DataFrame:
+        """Add default values to the files_info DataFrame.
+
+        This method takes a DataFrame `files_info_no_defaults` as input and adds default values to it.
+        The default values are added for any columns specified in `self.files_info_defauls_columns`.
+
+        Args:
+            files_info_no_defaults (pd.DataFrame): The DataFrame containing files_info without default values.
+
+        Returns:
+            pd.DataFrame: The DataFrame with default values added.
+
+        """
         for col in self.files_info_defauls_columns:
-            if col not in list(self.files_info):
-                self.files_info[col] = 1
+            if col not in list(files_info_no_defaults):
+                files_info_no_defaults[col] = 1
+        return files_info_no_defaults
 
     def create_replicates_info(self):
         """Creates a summary 'replicates_info' DataFrame from 'files_info',
@@ -305,7 +321,7 @@ class Project:
 
         return self.compounds_properties
 
-    def create_compounds_properties(self):
+    def create_compounds_properties(self, update_saved_files_info: bool = True):
         """ """
         if self.list_of_unique_compounds is None:
             self.create_list_of_unique_compounds()
@@ -322,7 +338,10 @@ class Project:
             )
         self.compounds_properties.index.name = "comp_name"
         # save db in the project folder in the input
-        self.compounds_properties.to_excel(plib.Path(self.folder_path, "compounds_properties.xlsx"))
+        if update_saved_files_info:
+            self.compounds_properties.to_excel(
+                plib.Path(self.folder_path, "compounds_properties.xlsx")
+            )
         print("Info: create_compounds_properties: compounds_properties created and saved")
         return self.compounds_properties
 
@@ -445,6 +464,89 @@ class Project:
         self.samples_aggrreps_std[param] = replicateagg.T.groupby(by=replicateagg.columns).std().T
         self.list_of_samples_param_aggrreps.append(param)
         return self.samples_aggrreps[param], self.samples_aggrreps_std[param]
+
+    def save_files_samples_reports(self):
+        """"""
+        for subfolder in [
+            "",
+            "files",
+            "replicates",
+            "samples",
+            "files_reports",
+            "files_aggrreps",
+            "replicates_reports",
+            "replicates_aggrreps",
+            "samples_reports",
+            "samples_aggrreps",
+        ]:
+            plib.Path(self.out_path, subfolder).mkdir(parents=True, exist_ok=True)
+        out_path = self.out_path
+        # save files_info and samples_info to the general output folder
+        if self.files_info is not None:
+            self.files_info.to_excel(plib.Path(out_path, "files_info.xlsx"))
+        if self.samples_info is not None:
+            self.samples_info.to_excel(plib.Path(out_path, "samples_info.xlsx"))
+        if self.file_dfs:
+            for filename, df in self.file_dfs.items():
+                df.to_excel(plib.Path(out_path, "files", f"{filename}.xlsx"))
+        if self.replicate_dfs:
+            for replicatename, df in self.replicate_dfs.items():
+                df.to_excel(plib.Path(out_path, "replicates", f"{replicatename}.xlsx"))
+        if self.sample_dfs:
+            for samplename, df in self.sample_dfs.items():
+                df.to_excel(plib.Path(out_path, "samples", f"{samplename}.xlsx"))
+            for samplename, df in self.sample_dfs_std.items():
+                df.to_excel(plib.Path(out_path, "samples", f"{samplename}_std.xlsx"))
+        if self.files_reports:
+            for param, df in self.files_reports.items():
+                df.to_excel(plib.Path(out_path, "files_reports", f"report_files_{param}.xlsx"))
+        if self.files_aggrreps:
+            for param, df in self.files_aggrreps.items():
+                df.to_excel(
+                    plib.Path(self.out_path, "files_aggrreps", f"aggrrep_files_{param}.xlsx")
+                )
+        if self.replicates_reports:
+            for param, df in self.replicates_reports.items():
+                df.to_excel(
+                    plib.Path(out_path, "replicates_reports", f"report_replicates_{param}.xlsx")
+                )
+        if self.replicates_aggrreps:
+            for param, df in self.replicates_aggrreps.items():
+                df.to_excel(
+                    plib.Path(
+                        self.out_path, "replicates_aggrreps", f"aggrrep_replicates_{param}.xlsx"
+                    )
+                )
+        if self.samples_reports:
+            for param, df in self.samples_reports.items():
+                df.to_excel(
+                    plib.Path(self.out_path, "samples_reports", f"report_samples_{param}.xlsx")
+                )
+            for param, df in self.samples_reports_std.items():
+                df.to_excel(
+                    plib.Path(
+                        self.out_path,
+                        "samples_reports",
+                        f"report_samples_{param}_std.xlsx",
+                    )
+                )
+        if self.samples_aggrreps:
+            for param, df in self.samples_aggrreps.items():
+                df.to_excel(
+                    plib.Path(
+                        self.out_path,
+                        "samples_aggrreps",
+                        f"aggrrep_samples_{param}.xlsx",
+                    )
+                )
+            for param, df in self.samples_aggrreps_std.items():
+                df.to_excel(
+                    plib.Path(
+                        self.out_path,
+                        "samples_aggrreps",
+                        f"aggrrep_samples_{param}_std.xlsx",
+                    )
+                )
 
     def plot_report(
         self,
@@ -599,17 +701,16 @@ class Sample:
         sample_info: pd.DataFrame,
     ):
         # store the sample in the project
-        self.project_name = project.name
+        self.projectname = project.projectname
 
         # prject defaults unless specified
 
-        self.load_skiprows = project.load_skiprows
-        self.load_delimiter = project.load_delimiter
+        self.file_load_skiprows = project.file_load_skiprows
+        self.file_load_delimiter = project.file_load_delimiter
         self.files_info_defauls_columns = project.files_info_defauls_columns
         self.columns_to_keep_in_files = project.columns_to_keep_in_files
         self.columns_to_rename_in_files = project.columns_to_rename_in_files
-        self.compounds_to_rename = project.compounds_to_rename
-        self.auto_save_reports = project.auto_save_reports
+        self.compounds_to_rename_in_files = project.compounds_to_rename_in_files
 
         self.folder_path = project.folder_path
 
@@ -640,14 +741,14 @@ class Sample:
 
         file: pd.DataFrame = pd.read_csv(
             plib.Path(self.folder_path, filename + ".txt"),
-            delimiter=self.load_delimiter,
+            delimiter=self.file_load_delimiter,
             index_col=0,
-            skiprows=self.load_skiprows,
+            skiprows=self.file_load_skiprows,
         )
         file.rename(self.columns_to_rename_in_files, inplace=True, axis="columns")
         file = file.loc[file["comp_name"].notna(), self.columns_to_keep_in_files]
         file.set_index("comp_name", inplace=True)
-        file.rename(self.compounds_to_rename, inplace=True)
+        file.rename(self.compounds_to_rename_in_files, inplace=True)
         if any(file.index.duplicated(keep="first")):
             duplicates = file[file.index.duplicated(keep=False)]
             file = file[~file.index.duplicated(keep="first")]
