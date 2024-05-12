@@ -226,3 +226,5 @@ $RECYCLE.BIN/
 
 src/.DS_Store
 .DS_Store
+docs/make.bat
+docs/Makefile
