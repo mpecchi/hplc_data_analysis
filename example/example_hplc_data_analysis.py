@@ -74,9 +74,18 @@ mf = hplc.plot_report(
     x_ticklabels_rotation=20,
     legend_ncols=1,
 )
+# %%
+mf = hplc.plot_report(
+    files_replicates_or_samples="samples",
+    param="fraction_of_sample_fr",
+    names_to_keep=["FW250C1h1", "FWCP250C1h1", "FWCPMn250C1h1"],
+    y_axis_min_threshold=10000,
+    x_ticklabels_rotation=20,
+    legend_ncols=1,
+)
+
+
+# uncomment the following if you want to save everything as an excel file in the output folder
+# hplc.save_files_samples_reports()
 
 # %%
-
-
-for level, param in zip(["files", "repliactes", "samples"], hplc.acceptable_params):
-    hplc.plot_report(r)
