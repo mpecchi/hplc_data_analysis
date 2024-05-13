@@ -550,6 +550,7 @@ class Project:
 
     def plot_report(
         self,
+        filename: str = "",
         report_or_aggrrep: Literal["report", "aggrrep"] = "report",
         files_replicates_or_samples: Literal["files", "replicates", "samples"] = "samples",
         param: str = "conc_vial_mg_L",
@@ -636,7 +637,7 @@ class Project:
                 df_std = df_std[mask]
 
         default_kwargs = {
-            "filename": report_or_aggrrep + files_replicates_or_samples + param,
+            "filename": filename + report_or_aggrrep + files_replicates_or_samples + param,
             "out_path": out_path,
             "height": 4,
             "width": 4,
