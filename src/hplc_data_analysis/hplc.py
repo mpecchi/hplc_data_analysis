@@ -22,9 +22,10 @@ class Project:
         param_to_axis_label: dict[str, str] | None = None,
         plot_font: Literal["Dejavu Sans", "Times New Roman"] = "Dejavu Sans",
         plot_grid: bool = False,
+        output_folder_name: str = "output",
     ):
         self.folder_path = plib.Path(folder_path)
-        self.out_path = plib.Path(folder_path, "output")
+        self.out_path = plib.Path(self.folder_path, output_folder_name)
         if projectname is None:
             self.projectname = self.folder_path.parts[-1]
         else:
@@ -747,6 +748,11 @@ class Sample:
             skiprows=self.file_load_skiprows,
         )
         file.rename(self.columns_to_rename_in_files, inplace=True, axis="columns")
+        # check if all values in columns_to_rename_in_files are in the columns
+        # if not, raise an exception that prints the name of the filename
+        if not all([col in file.columns for col in self.columns_to_rename_in_files.values()]):
+            raise ValueError(f"columns_to_rename_in_files not in {filename = }")
+
         file = file.loc[file["comp_name"].notna(), self.columns_to_keep_in_files]
         file.set_index("comp_name", inplace=True)
         file.rename(self.compounds_to_rename_in_files, inplace=True)
